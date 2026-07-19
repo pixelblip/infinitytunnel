@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 2</title>
+  <title>Rainbow Hex Tunnel 3</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -27,9 +27,8 @@
   </style>
   <script>
     /**
-     * tunnel2 — slower groove, fill every 8 bars, varied hats, in-key sitar,
-     * sampled guitar (Hillage) through deep phaser+delay, quiet dub snares &
-     * timed delay FX, tasteful wall light accents.
+     * tunnel3 — same groove as tunnel2, fly 2× as fast, spinning cube
+     * head-locked (stays in front when you look around / VR).
      */
     const TunnelDrone = {
       ctx: null,
@@ -1572,9 +1571,34 @@
       }
     };
 
+
+    // Keep the hero cube glued to the active camera (works in flat + VR)
+    AFRAME.registerComponent('head-locked-cube', {
+      schema: {
+        dist: { type: 'number', default: 2.8 }
+      },
+      init() {
+        const T = AFRAME.THREE;
+        this._v = new T.Vector3();
+        this._q = new T.Quaternion();
+        this._forward = new T.Vector3();
+      },
+      tick() {
+        const scene = this.el.sceneEl;
+        if (!scene || !scene.camera) return;
+        const cam = scene.camera; // THREE.Camera used for rendering (XR-aware)
+        cam.getWorldPosition(this._v);
+        cam.getWorldQuaternion(this._q);
+        // Place cube in front of the eyes along view axis
+        this._forward.set(0, 0, -1).applyQuaternion(this._q);
+        this.el.object3D.position.copy(this._v).addScaledVector(this._forward, this.data.dist);
+        // Keep spin animation as local rotation — only sync position to head
+      }
+    });
+
     AFRAME.registerComponent('hex-tunnel', {
       schema: {
-        speed: { type: 'number', default: 0.008 }
+        speed: { type: 'number', default: 0.013 }
       },
 
       init() {
@@ -1828,9 +1852,7 @@
           );
           this.moodLight.object3D.position.set(0, 0, this.camZ - 5);
         }
-        if (this.cubeLight) {
-          this.cubeLight.object3D.position.set(0.6, 0.5, this.camZ - 1.2);
-        }
+        // cube-light lives on the camera now — do not drag it in world space
       }
     });
   </script>
@@ -1845,24 +1867,28 @@
   >
     <a-entity light="type: ambient; color: #778899; intensity: 0.4"></a-entity>
     <a-entity id="mood-light" light="type: point; color: #ff4080; intensity: 0.65; distance: 28" position="0 0 -5"></a-entity>
-    <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 3.2; distance: 14" position="0.7 0.55 -1.0"></a-entity>
     <a-entity light="type: point; color: #b8ffd0; intensity: 1.6; distance: 10" position="-0.8 0.3 -2.0"></a-entity>
     <a-entity light="type: directional; color: #ffffff; intensity: 1.15" position="2 3 1"></a-entity>
 
     <a-entity id="rig" position="0 0 0">
       <a-camera position="0 0 0" look-controls="enabled: true" wasd-controls="enabled: false">
-        <a-box
-          position="0 0 -2.8"
-          width="0.28" height="0.28" depth="0.28"
-          material="color: #7dffb0; metalness: 1; roughness: 0.06; emissive: #1a8f4a; emissiveIntensity: 0.35"
-          animation="property: rotation; to: 360 360 360; loop: true; dur: 28000; easing: linear"
-        ></a-box>
-        <a-entity light="type: point; color: #ffffff; intensity: 2.4; distance: 5" position="0.4 0.35 -2.1"></a-entity>
+        <!-- Lights travel with the head so the cube stays lit in place -->
+        <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 3.2; distance: 8" position="0.35 0.3 -2.0"></a-entity>
+        <a-entity light="type: point; color: #ffffff; intensity: 2.0; distance: 5" position="0.4 0.35 -2.1"></a-entity>
         <a-entity light="type: point; color: #d4ffe8; intensity: 1.2; distance: 4" position="-0.3 -0.25 -2.4"></a-entity>
       </a-camera>
     </a-entity>
 
-    <a-entity hex-tunnel="speed: 0.0065"></a-entity>
+    <!-- Hero cube: position forced each frame to sit in front of the XR/flat camera -->
+    <a-box
+      id="hero-cube"
+      head-locked-cube="dist: 2.8"
+      width="0.28" height="0.28" depth="0.28"
+      material="color: #7dffb0; metalness: 1; roughness: 0.06; emissive: #1a8f4a; emissiveIntensity: 0.35"
+      animation="property: rotation; to: 360 360 360; loop: true; dur: 28000; easing: linear"
+    ></a-box>
+
+    <a-entity hex-tunnel="speed: 0.013"></a-entity>
   </a-scene>
 
   <script>
