@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 7</title>
+  <title>Rainbow Hex Tunnel 8</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -43,7 +43,7 @@
   </style>
   <script>
     /**
-     * tunnel7 — hand tracking + grabbable trippy toys while flying the tunnel.
+     * tunnel8 — reachable fidget spinner + working pinch grab (hands at chest height).
      */
     const TunnelDrone = {
       ctx: null,
@@ -1897,21 +1897,25 @@
         this._tmp = new AFRAME.THREE.Vector3();
         this.trail = [];
         this.el.object3D.getWorldPosition(this._lastPos);
-        this.el.addEventListener('grabstarted', this.onGrab.bind(this));
-        this.el.addEventListener('grabended', this.onRelease.bind(this));
-        // A-Frame hand grab may use these event names
-        this.el.addEventListener('pinchstarted', this.onGrab.bind(this));
-        this.el.addEventListener('pinchended', this.onRelease.bind(this));
+        // A-Frame emits grabstarted/ended on the HAND — listen on scene
+        const scene = this.el.sceneEl;
+        this._onGrabStart = (e) => {
+          if (e.detail && e.detail.grabbedEl === this.el) this.grabbed = true;
+        };
+        this._onGrabEnd = (e) => {
+          if (e.detail && e.detail.grabbedEl === this.el) {
+            this.grabbed = false;
+            this._returnHome = true;
+          }
+        };
+        scene.addEventListener('grabstarted', this._onGrabStart);
+        scene.addEventListener('grabended', this._onGrabEnd);
       },
-      onGrab: function () {
-        this.grabbed = true;
-        this.el.setAttribute('scale', '1.15 1.15 1.15');
-      },
-      onRelease: function () {
-        this.grabbed = false;
-        this.el.setAttribute('scale', '1 1 1');
-        // Soft return toward float slot beside the player
-        this._returnHome = true;
+      remove: function () {
+        const scene = this.el.sceneEl;
+        if (!scene) return;
+        scene.removeEventListener('grabstarted', this._onGrabStart);
+        scene.removeEventListener('grabended', this._onGrabEnd);
       },
       spawnSpark: function (worldPos, hue) {
         const scene = this.el.sceneEl;
@@ -1939,8 +1943,8 @@
       tick: function (t, dtMs) {
         const dt = Math.min(0.05, (dtMs || 16) / 1000);
         if (!this.rig) this.rig = document.getElementById('rig');
+        const cam = document.getElementById('cam');
         const hue = (t * 0.001 * this.data.hueSpeed) % 360;
-        const mat = this.el.getAttribute('material') || {};
         const bright = this.grabbed ? 0.95 : 0.55;
         this.el.setAttribute(
           'material',
@@ -1949,39 +1953,33 @@
           'transparent: true; opacity: 0.92'
         );
 
-        // Spin faster when held
-        const spin = this.grabbed ? 2.8 : 0.7;
-        this.el.object3D.rotation.x += spin * dt;
-        this.el.object3D.rotation.y += spin * 1.3 * dt;
-
-        // Float near player when not held / returning home
-        if (!this.grabbed && this.rig) {
-          const h = this.data.home;
-          const bob = Math.sin(t * 0.0025) * 0.04;
-          const target = this._tmp;
-          target.set(
-            this.rig.object3D.position.x + h.x,
-            this.rig.object3D.position.y + h.y + bob,
-            this.rig.object3D.position.z + h.z
-          );
-          if (this._returnHome || !this.el.parentEl || this.el.parentEl === this.el.sceneEl) {
-            // Keep as scene child but lerp toward home slot
-            if (this.el.parentNode !== this.el.sceneEl) {
-              this.el.sceneEl.appendChild(this.el);
-            }
-            this.el.object3D.position.lerp(target, 1 - Math.pow(0.001, dt));
-            if (this.el.object3D.position.distanceTo(target) < 0.04) this._returnHome = false;
+        // Do not touch pose while A-Frame is holding us (matrix owned by grab)
+        if (this.grabbed) {
+          this.el.object3D.getWorldPosition(this._tmp);
+          const moved = this._tmp.distanceTo(this._lastPos);
+          if (moved > 0.012) {
+            for (let i = 0; i < 3; i++) this.spawnSpark(this._tmp, hue + i * 25);
           }
+          this._lastPos.copy(this._tmp);
+        } else if (cam && this.rig) {
+          // Home at CHEST / hand height in front of the camera (not the floor!)
+          const h = this.data.home;
+          const bob = Math.sin(t * 0.0025) * 0.03;
+          cam.object3D.getWorldPosition(this._tmp);
+          const forward = new AFRAME.THREE.Vector3(0, 0, -1).applyQuaternion(cam.object3D.getWorldQuaternion(new AFRAME.THREE.Quaternion()));
+          const right = new AFRAME.THREE.Vector3(1, 0, 0).applyQuaternion(cam.object3D.getWorldQuaternion(new AFRAME.THREE.Quaternion()));
+          const target = this._lastPos;
+          target.copy(this._tmp)
+            .addScaledVector(forward, Math.abs(h.z) || 0.45)
+            .addScaledVector(right, h.x)
+            .add(new AFRAME.THREE.Vector3(0, h.y + bob, 0));
+          if (this.el.parentNode !== this.el.sceneEl) {
+            this.el.sceneEl.appendChild(this.el);
+          }
+          this.el.object3D.position.lerp(target, 1 - Math.pow(0.0008, dt));
+          this.el.object3D.rotation.y += 0.7 * dt;
+          this.el.object3D.rotation.x += 0.4 * dt;
         }
-
-        // Motion trail while moving (especially when grabbed)
-        this.el.object3D.getWorldPosition(this._tmp);
-        const moved = this._tmp.distanceTo(this._lastPos);
-        if (moved > 0.012 && (this.grabbed || moved > 0.04)) {
-          const n = this.grabbed ? 3 : 1;
-          for (let i = 0; i < n; i++) this.spawnSpark(this._tmp, hue + i * 25);
-        }
-        this._lastPos.copy(this._tmp);
 
         // Age trail sparks
         for (let i = this.trail.length - 1; i >= 0; i--) {
@@ -2003,7 +2001,6 @@
           }
         }
 
-        // Soft light following the toy
         const light = this.el.querySelector('[light]');
         if (light) {
           light.setAttribute(
@@ -2015,7 +2012,155 @@
       }
     });
 
-    /** Watch pinch on hands — pulse nearby toys / spray sparks from palm */
+    /**
+     * Colourful fidget spinner — pinch to grab, flick to spin.
+     * Uses A-Frame hand-tracking-grab-controls + local spin physics.
+     */
+    AFRAME.registerComponent('fidget-spinner', {
+      schema: {
+        side: { type: 'number', default: 0.22 }
+      },
+      init: function () {
+        this.grabbed = false;
+        this.spinVel = 6;
+        this._prevPinch = null;
+        this._tmp = new AFRAME.THREE.Vector3();
+        this._tmp2 = new AFRAME.THREE.Vector3();
+        this._quat = new AFRAME.THREE.Quaternion();
+        this._quat2 = new AFRAME.THREE.Quaternion();
+        this.rotor = this.el.querySelector('.rotor');
+        const scene = this.el.sceneEl;
+        this._onGrabStart = (e) => {
+          if (e.detail && e.detail.grabbedEl === this.el) {
+            this.grabbed = true;
+            this.spinVel *= 0.3;
+          }
+        };
+        this._onGrabEnd = (e) => {
+          if (e.detail && e.detail.grabbedEl === this.el) {
+            this.grabbed = false;
+            // Flick boost from recent motion
+            if (this._flick) {
+              this.spinVel += this._flick;
+              this._flick = 0;
+            } else {
+              this.spinVel += 4 + Math.random() * 8;
+            }
+            this._returnHome = true;
+          }
+        };
+        scene.addEventListener('grabstarted', this._onGrabStart);
+        scene.addEventListener('grabended', this._onGrabEnd);
+
+        // Track pinch motion while held to add spin
+        ['leftHand', 'rightHand'].forEach((id) => {
+          const hand = document.getElementById(id);
+          if (!hand) return;
+          hand.addEventListener('pinchmoved', (e) => {
+            if (!this.grabbed || !e.detail || !e.detail.position) return;
+            const p = e.detail.position;
+            if (this._prevPinch) {
+              const dx = p.x - this._prevPinch.x;
+              const dy = p.y - this._prevPinch.y;
+              this.spinVel += (dx + dy) * 40;
+              this._flick = (dx + dy) * 60;
+            }
+            if (!this._prevPinch) this._prevPinch = new AFRAME.THREE.Vector3();
+            this._prevPinch.set(p.x, p.y, p.z);
+          });
+          hand.addEventListener('pinchended', () => { this._prevPinch = null; });
+        });
+      },
+      tick: function (t, dtMs) {
+        const dt = Math.min(0.05, (dtMs || 16) / 1000);
+        const cam = document.getElementById('cam');
+        const hue = (t * 0.05) % 360;
+
+        // Spin the colourful arms
+        if (this.rotor) {
+          this.rotor.object3D.rotation.z += this.spinVel * dt;
+        }
+        // Friction — stays spinning a while
+        this.spinVel *= Math.pow(0.22, dt);
+        if (!this.grabbed && Math.abs(this.spinVel) < 1.2) {
+          this.spinVel += (this.spinVel >= 0 ? 1.2 : -1.2) - this.spinVel;
+        }
+
+        // Colour wash on lobes
+        const lobes = this.el.querySelectorAll('.lobe');
+        for (let i = 0; i < lobes.length; i++) {
+          const h = (hue + i * 120) % 360;
+          lobes[i].setAttribute(
+            'material',
+            'color: hsl(' + h + ',95%,58%); metalness: 0.55; roughness: 0.15; ' +
+            'emissive: hsl(' + h + ',100%,40%); emissiveIntensity: ' +
+            (0.45 + Math.min(1.2, Math.abs(this.spinVel) * 0.08))
+          );
+        }
+        const cap = this.el.querySelector('.cap');
+        if (cap) {
+          cap.setAttribute(
+            'material',
+            'color: #fff6c8; metalness: 0.9; roughness: 0.1; emissive: #ffe566; emissiveIntensity: 0.8'
+          );
+        }
+
+        // Soft glow light
+        const light = this.el.querySelector('[light]');
+        if (light) {
+          light.setAttribute(
+            'light',
+            'type: point; color: hsl(' + hue + ',100%,70%); intensity: ' +
+            (0.8 + Math.min(2, Math.abs(this.spinVel) * 0.12)) + '; distance: 3.5'
+          );
+        }
+
+        if (this.grabbed || !cam) return;
+
+        // Float at hand height in front of you
+        cam.object3D.getWorldPosition(this._tmp);
+        cam.object3D.getWorldQuaternion(this._quat);
+        const forward = this._tmp2.set(0, 0, -1).applyQuaternion(this._quat);
+        const right = new AFRAME.THREE.Vector3(1, 0, 0).applyQuaternion(this._quat);
+        const bob = Math.sin(t * 0.002) * 0.025;
+        const target = new AFRAME.THREE.Vector3()
+          .copy(this._tmp)
+          .addScaledVector(forward, 0.45)
+          .addScaledVector(right, this.data.side)
+          .add(new AFRAME.THREE.Vector3(0, -0.12 + bob, 0));
+        if (this.el.parentNode !== this.el.sceneEl) {
+          this.el.sceneEl.appendChild(this.el);
+        }
+        this.el.object3D.position.lerp(target, 1 - Math.pow(0.0005, dt));
+        // Face the user gently
+        this.el.object3D.quaternion.slerp(this._quat, 0.08);
+      }
+    });
+
+    /** Re-broadcast hand grab events on the scene (reliable for toys) */
+    AFRAME.registerComponent('grab-bus', {
+      init: function () {
+        const scene = this.el;
+        const bind = (hand) => {
+          if (!hand || hand._grabBus) return;
+          hand._grabBus = true;
+          hand.addEventListener('grabstarted', (e) => {
+            scene.emit('grabstarted', e.detail, false);
+          });
+          hand.addEventListener('grabended', (e) => {
+            scene.emit('grabended', e.detail, false);
+          });
+        };
+        const hook = () => {
+          bind(document.getElementById('leftHand'));
+          bind(document.getElementById('rightHand'));
+        };
+        hook();
+        this.el.addEventListener('loaded', hook);
+      }
+    });
+
+    /** Watch pinch on hands — spray sparks from palm */
     AFRAME.registerComponent('hand-trippy', {
       init: function () {
         this.el.addEventListener('pinchstarted', (e) => {
@@ -2054,7 +2199,7 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel7 · hands + pinch the crystal · HTTPS on Quest</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel8 · pinch the fidget spinner · colourful hands</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
 
   <a-scene
@@ -2063,6 +2208,8 @@
     renderer="antialias: true; colorManagement: true; physicallyCorrectLights: true"
     vr-mode-ui="enabled: true"
     webxr="optionalFeatures: hand-tracking, local-floor, bounded-floor"
+    obb-collider="showColliders: false"
+    grab-bus
   >
     <a-entity light="type: ambient; color: #778899; intensity: 0.4"></a-entity>
     <a-entity id="mood-light" light="type: point; color: #ff4080; intensity: 0.65; distance: 28" position="0 0 -5"></a-entity>
@@ -2082,29 +2229,45 @@
     ></a-box>
     <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 3.2; distance: 8" position="0.25 0.25 -1.8"></a-entity>
 
-    <!-- Trippy toys — pinch to grab, wave for trails -->
+    <!-- Fidget spinner — floats at hand height; pinch lobes to grab & flick -->
     <a-entity
-      id="mind-crystal"
+      id="fidget"
       grabbable
-      trippy-toy="home: 0.32 -0.08 -0.52; hueSpeed: 55"
-      position="0.32 -0.08 -0.52"
-      geometry="primitive: octahedron; radius: 0.09"
-      material="color: #ff66cc; metalness: 0.4; roughness: 0.1; emissive: #ff2299; emissiveIntensity: 0.7"
+      fidget-spinner="side: 0.2"
+      position="0.2 1.2 -0.45"
+      scale="1 1 1"
     >
-      <a-entity light="type: point; color: #ff66cc; intensity: 1.2; distance: 3.5"></a-entity>
-      <a-torus
-        radius="0.14"
-        radius-tubular="0.008"
-        material="shader: flat; color: #88ffff; opacity: 0.7; transparent: true"
-        animation="property: rotation; to: 360 180 720; loop: true; dur: 9000; easing: linear"
-      ></a-torus>
+      <a-entity light="type: point; color: #ff88ee; intensity: 1; distance: 3"></a-entity>
+      <!-- bearing / cap -->
+      <a-cylinder
+        class="cap"
+        radius="0.035"
+        height="0.028"
+        material="color: #fff6c8; metalness: 0.9; roughness: 0.1; emissive: #ffe566; emissiveIntensity: 0.7"
+      ></a-cylinder>
+      <a-entity class="rotor">
+        <a-sphere class="lobe" position="0.09 0 0" radius="0.048"
+          material="color: #ff4d9a; emissive: #ff2a7a; emissiveIntensity: 0.6"></a-sphere>
+        <a-sphere class="lobe" position="-0.045 0 0.078" radius="0.048"
+          material="color: #4dffc3; emissive: #22e0a0; emissiveIntensity: 0.6"></a-sphere>
+        <a-sphere class="lobe" position="-0.045 0 -0.078" radius="0.048"
+          material="color: #6a8cff; emissive: #4060ff; emissiveIntensity: 0.6"></a-sphere>
+        <!-- arms -->
+        <a-box position="0.045 0 0" width="0.08" height="0.016" depth="0.028"
+          material="color: #ffcc66; metalness: 0.6; roughness: 0.2; emissive: #ffaa22; emissiveIntensity: 0.35"></a-box>
+        <a-box position="-0.022 0 0.039" rotation="0 60 0" width="0.08" height="0.016" depth="0.028"
+          material="color: #88ffee; metalness: 0.6; roughness: 0.2; emissive: #44ddcc; emissiveIntensity: 0.35"></a-box>
+        <a-box position="-0.022 0 -0.039" rotation="0 -60 0" width="0.08" height="0.016" depth="0.028"
+          material="color: #c8a0ff; metalness: 0.6; roughness: 0.2; emissive: #9966ff; emissiveIntensity: 0.35"></a-box>
+      </a-entity>
     </a-entity>
 
+    <!-- Extra soft orb to pinch too -->
     <a-entity
       id="prism-ball"
       grabbable
-      trippy-toy="home: -0.3 -0.05 -0.48; hueSpeed: 70"
-      position="-0.3 -0.05 -0.48"
+      trippy-toy="home: -0.25 -0.12 0.45; hueSpeed: 70"
+      position="-0.25 1.15 -0.42"
       geometry="primitive: icosahedron; radius: 0.07"
       material="color: #66ffcc; metalness: 0.5; roughness: 0.08; emissive: #22ffaa; emissiveIntensity: 0.65"
     >
@@ -2118,21 +2281,21 @@
         look-controls="enabled: true"
         wasd-controls="enabled: false"
       ></a-camera>
-
-      <!-- Visible tracked hands + pinch-grab -->
-      <a-entity
-        id="leftHand"
-        hand-tracking-controls="hand: left; modelStyle: mesh; modelColor: #9bffe0"
-        hand-tracking-grab-controls="hand: left; hoverColor: #ffe600; hoverEnabled: true"
-        hand-trippy
-      ></a-entity>
-      <a-entity
-        id="rightHand"
-        hand-tracking-controls="hand: right; modelStyle: mesh; modelColor: #ffb8e8"
-        hand-tracking-grab-controls="hand: right; hoverColor: #ffe600; hoverEnabled: true"
-        hand-trippy
-      ></a-entity>
     </a-entity>
+
+    <!-- Hands at scene root so XR poses / grab colliders stay correct -->
+    <a-entity
+      id="leftHand"
+      hand-tracking-controls="hand: left; modelStyle: mesh; modelColor: #9bffe0"
+      hand-tracking-grab-controls="hand: left; color: #9bffe0; hoverColor: #ffe600; hoverEnabled: true"
+      hand-trippy
+    ></a-entity>
+    <a-entity
+      id="rightHand"
+      hand-tracking-controls="hand: right; modelStyle: mesh; modelColor: #ffb8e8"
+      hand-tracking-grab-controls="hand: right; color: #ffb8e8; hoverColor: #ffe600; hoverEnabled: true"
+      hand-trippy
+    ></a-entity>
 
     <a-entity hex-tunnel="speed: 0.052"></a-entity>
   </a-scene>
