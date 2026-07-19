@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 3</title>
+  <title>Rainbow Hex Tunnel 4</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -27,8 +27,8 @@
   </style>
   <script>
     /**
-     * tunnel3 — same groove as tunnel2, fly 2× as fast, spinning cube
-     * head-locked (stays in front when you look around / VR).
+     * tunnel4 — faster flight; hero cube is a child of the camera so it
+     * stays centred in view and only spins locally (no world drift).
      */
     const TunnelDrone = {
       ctx: null,
@@ -1572,33 +1572,39 @@
     };
 
 
-    // Keep the hero cube glued to the active camera (works in flat + VR)
-    AFRAME.registerComponent('head-locked-cube', {
+    /**
+     * Keep the hero cube as a camera child at a fixed local offset.
+     * World-space tracking was drifting with look-controls / VR pose.
+     */
+    AFRAME.registerComponent('center-hud-cube', {
       schema: {
-        dist: { type: 'number', default: 2.8 }
+        dist: { type: 'number', default: 2.4 }
       },
       init() {
-        const T = AFRAME.THREE;
-        this._v = new T.Vector3();
-        this._q = new T.Quaternion();
-        this._forward = new T.Vector3();
+        this._spin = { x: 0, y: 0, z: 0 };
+        // Drive spin ourselves so A-Frame animation cannot fight parenting
+        this.el.removeAttribute('animation');
       },
-      tick() {
-        const scene = this.el.sceneEl;
-        if (!scene || !scene.camera) return;
-        const cam = scene.camera; // THREE.Camera used for rendering (XR-aware)
-        cam.getWorldPosition(this._v);
-        cam.getWorldQuaternion(this._q);
-        // Place cube in front of the eyes along view axis
-        this._forward.set(0, 0, -1).applyQuaternion(this._q);
-        this.el.object3D.position.copy(this._v).addScaledVector(this._forward, this.data.dist);
-        // Keep spin animation as local rotation — only sync position to head
+      tick(time, delta) {
+        const cam = document.getElementById('cam') || document.querySelector('a-camera');
+        if (!cam) return;
+        if (this.el.parentNode !== cam) {
+          cam.appendChild(this.el);
+        }
+        // Dead-centre of the view frustum
+        this.el.object3D.position.set(0, 0, -this.data.dist);
+        // Local spin only — stays put relative to the head
+        const dt = Math.min(0.05, (delta || 16) / 1000);
+        this._spin.x += dt * 0.35;
+        this._spin.y += dt * 0.55;
+        this._spin.z += dt * 0.25;
+        this.el.object3D.rotation.set(this._spin.x, this._spin.y, this._spin.z);
       }
     });
 
     AFRAME.registerComponent('hex-tunnel', {
       schema: {
-        speed: { type: 'number', default: 0.013 }
+        speed: { type: 'number', default: 0.026 }
       },
 
       init() {
@@ -1858,7 +1864,7 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Click to enter the tunnel<small>tunnel2 · http://localhost:8899 — sitar + guitar samples</small></span></div>
+  <div id="audio-gate"><span>Click to enter the tunnel<small>tunnel4 · 2× faster · cube locked centre — sitar + guitar samples</small></span></div>
 
   <a-scene
     background="color: #000008"
@@ -1871,24 +1877,29 @@
     <a-entity light="type: directional; color: #ffffff; intensity: 1.15" position="2 3 1"></a-entity>
 
     <a-entity id="rig" position="0 0 0">
-      <a-camera position="0 0 0" look-controls="enabled: true" wasd-controls="enabled: false">
-        <!-- Lights travel with the head so the cube stays lit in place -->
-        <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 3.2; distance: 8" position="0.35 0.3 -2.0"></a-entity>
+      <a-camera
+        id="cam"
+        position="0 0 0"
+        look-controls="enabled: true"
+        wasd-controls="enabled: false"
+      >
+        <!-- Cube is a camera child → always centre of view; only spins locally -->
+        <a-box
+          id="hero-cube"
+          center-hud-cube="dist: 2.4"
+          width="0.28"
+          height="0.28"
+          depth="0.28"
+          position="0 0 -2.4"
+          material="color: #7dffb0; metalness: 1; roughness: 0.06; emissive: #1a8f4a; emissiveIntensity: 0.35"
+        ></a-box>
+        <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 3.2; distance: 8" position="0.25 0.25 -1.8"></a-entity>
         <a-entity light="type: point; color: #ffffff; intensity: 2.0; distance: 5" position="0.4 0.35 -2.1"></a-entity>
         <a-entity light="type: point; color: #d4ffe8; intensity: 1.2; distance: 4" position="-0.3 -0.25 -2.4"></a-entity>
       </a-camera>
     </a-entity>
 
-    <!-- Hero cube: position forced each frame to sit in front of the XR/flat camera -->
-    <a-box
-      id="hero-cube"
-      head-locked-cube="dist: 2.8"
-      width="0.28" height="0.28" depth="0.28"
-      material="color: #7dffb0; metalness: 1; roughness: 0.06; emissive: #1a8f4a; emissiveIntensity: 0.35"
-      animation="property: rotation; to: 360 360 360; loop: true; dur: 28000; easing: linear"
-    ></a-box>
-
-    <a-entity hex-tunnel="speed: 0.013"></a-entity>
+    <a-entity hex-tunnel="speed: 0.026"></a-entity>
   </a-scene>
 
   <script>
