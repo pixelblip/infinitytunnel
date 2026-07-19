@@ -3,32 +3,49 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 5</title>
+  <title>Rainbow Hex Tunnel 6</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
     #audio-gate {
-      position: fixed; inset: 0; z-index: 20;
+      position: fixed; inset: 0; z-index: 10000;
       display: flex; align-items: center; justify-content: center;
-      background: rgba(0, 0, 8, 0.72);
+      background: rgba(0, 0, 8, 0.88);
       color: #ffe600; font-family: Georgia, "Times New Roman", serif;
       font-size: 1.35rem; letter-spacing: 0.08em; cursor: pointer;
-      user-select: none;
+      user-select: none; -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
     }
     #audio-gate[hidden] { display: none; }
     #audio-gate span {
       border: 1px solid rgba(255, 230, 0, 0.45);
-      padding: 0.9rem 1.6rem;
+      padding: 0.9rem 1.6rem; text-align: center; pointer-events: none;
     }
     #audio-gate small {
       display: block; margin-top: 0.7rem; font-size: 0.75rem;
       color: rgba(255, 230, 0, 0.55); letter-spacing: 0.04em;
     }
+    /* In-VR / after gate: tiny tap target if Quest suspends audio again */
+    #audio-resume {
+      display: none; position: fixed; bottom: 1.25rem; left: 50%;
+      transform: translateX(-50%); z-index: 10001;
+      font: 0.85rem Georgia, "Times New Roman", serif;
+      letter-spacing: 0.06em; color: #ffe600;
+      background: rgba(0, 0, 8, 0.85); border: 1px solid rgba(255, 230, 0, 0.5);
+      padding: 0.65rem 1.1rem; cursor: pointer; touch-action: manipulation;
+    }
+    #audio-resume.show { display: block; }
+    /* Force sound unlock before VR on Quest */
+    body:not(.audio-on) .a-enter-vr-button,
+    body:not(.audio-on) .a-enter-ar-button {
+      display: none !important;
+    }
   </style>
   <script>
     /**
-     * tunnel5 — 2× tunnel4 speed; hero cube parented to the rig (not the
-     * camera) so it stays fixed ahead in the tunnel when you look around.
+     * tunnel6 — hero cube is WORLD-anchored (scene child): only tracks rig
+     * Z so it flies with you, never copies headset/camera rotation.
+     * Audio: explicit tap unlock for Quest Browser.
      */
     const TunnelDrone = {
       ctx: null,
@@ -1829,46 +1846,85 @@
           );
           this.moodLight.object3D.position.set(0, 0, this.camZ - 5);
         }
-        // cube-light lives on the camera now — do not drag it in world space
+      }
+    });
+
+    /**
+     * Place the cube in the tunnel ahead of the player along world −Z only.
+     * Never parent to the camera / never copy head quaternion — looking around
+     * must leave the cube behind in the tunnel (off-centre in the FOV).
+     */
+    AFRAME.registerComponent('tunnel-anchored-cube', {
+      schema: {
+        dist: { type: 'number', default: 2.4 },
+        lightOffset: { type: 'vec3', default: { x: 0.25, y: 0.25, z: 0.6 } }
+      },
+      init: function () {
+        this.rig = null;
+        this.light = null;
+        // Ensure we are a direct scene child (not under cam/rig)
+        const scene = this.el.sceneEl;
+        if (scene && this.el.parentNode !== scene) {
+          scene.appendChild(this.el);
+        }
+      },
+      tick: function () {
+        if (!this.rig) this.rig = document.getElementById('rig');
+        if (!this.light) this.light = document.getElementById('cube-light');
+        if (!this.rig) return;
+        // Guard: if anything reparented us under the camera, yank back to scene
+        const cam = document.getElementById('cam');
+        if (cam && this.el.parentNode === cam) {
+          this.el.sceneEl.appendChild(this.el);
+        }
+        const z = this.rig.object3D.position.z - this.data.dist;
+        const x = this.rig.object3D.position.x;
+        const y = this.rig.object3D.position.y;
+        this.el.object3D.position.set(x, y, z);
+        // Spin is local only — do not touch quaternion from the headset
+        if (this.light) {
+          const o = this.data.lightOffset;
+          this.light.object3D.position.set(x + o.x, y + o.y, z + o.z);
+        }
       }
     });
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Click to enter the tunnel<small>tunnel5 · faster · cube fixed in tunnel — sitar + guitar samples</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel6 · cube stays in the tunnel · Quest needs this tap</small></span></div>
+  <button type="button" id="audio-resume">Tap for sound</button>
 
   <a-scene
     background="color: #000008"
     fog="type: exponential; color: #000008; density: 0.006"
     renderer="antialias: true; colorManagement: true; physicallyCorrectLights: true"
+    vr-mode-ui="enabled: true"
   >
     <a-entity light="type: ambient; color: #778899; intensity: 0.4"></a-entity>
     <a-entity id="mood-light" light="type: point; color: #ff4080; intensity: 0.65; distance: 28" position="0 0 -5"></a-entity>
     <a-entity light="type: point; color: #b8ffd0; intensity: 1.6; distance: 10" position="-0.8 0.3 -2.0"></a-entity>
     <a-entity light="type: directional; color: #ffffff; intensity: 1.15" position="2 3 1"></a-entity>
 
-    <a-entity id="rig" position="0 0 0">
-      <!-- Cube on the RIG (not camera): flies with you down the tunnel,
-           but does NOT follow head look — stays still ahead in world/tunnel space -->
-      <a-box
-        id="hero-cube"
-        position="0 0 -2.4"
-        width="0.28"
-        height="0.28"
-        depth="0.28"
-        material="color: #7dffb0; metalness: 1; roughness: 0.06; emissive: #1a8f4a; emissiveIntensity: 0.35"
-        animation="property: rotation; to: 360 360 360; loop: true; dur: 28000; easing: linear"
-      ></a-box>
-      <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 3.2; distance: 8" position="0.25 0.25 -1.8"></a-entity>
+    <!-- Cube is NOT under the camera. World position updated along tunnel only. -->
+    <a-box
+      id="hero-cube"
+      tunnel-anchored-cube="dist: 2.4"
+      position="0 0 -2.4"
+      width="0.28"
+      height="0.28"
+      depth="0.28"
+      material="color: #7dffb0; metalness: 1; roughness: 0.06; emissive: #1a8f4a; emissiveIntensity: 0.35"
+      animation="property: rotation; to: 360 360 360; loop: true; dur: 28000; easing: linear"
+    ></a-box>
+    <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 3.2; distance: 8" position="0.25 0.25 -1.8"></a-entity>
 
+    <a-entity id="rig" position="0 0 0">
       <a-camera
         id="cam"
         position="0 0 0"
         look-controls="enabled: true"
         wasd-controls="enabled: false"
-      >
-        <a-entity light="type: point; color: #ffffff; intensity: 1.6; distance: 5" position="0.3 0.25 -2.0"></a-entity>
-      </a-camera>
+      ></a-camera>
     </a-entity>
 
     <a-entity hex-tunnel="speed: 0.052"></a-entity>
@@ -1876,12 +1932,88 @@
 
   <script>
     const gate = document.getElementById('audio-gate');
-    const begin = () => {
-      gate.hidden = true;
-      TunnelDrone.start();
-      gate.removeEventListener('click', begin);
-    };
-    gate.addEventListener('click', begin);
+    const resumeBtn = document.getElementById('audio-resume');
+    let unlocking = false;
+
+    async function unlockAudio() {
+      if (unlocking) return;
+      unlocking = true;
+      try {
+        await TunnelDrone.start();
+        if (TunnelDrone.ctx && TunnelDrone.ctx.state === 'suspended') {
+          await TunnelDrone.ctx.resume();
+        }
+        // Quest / iOS often need a short buffer play inside the gesture
+        if (TunnelDrone.ctx) {
+          const buf = TunnelDrone.ctx.createBuffer(1, 1, TunnelDrone.ctx.sampleRate);
+          const src = TunnelDrone.ctx.createBufferSource();
+          src.buffer = buf;
+          src.connect(TunnelDrone.ctx.destination);
+          src.start(0);
+        }
+        gate.hidden = true;
+        resumeBtn.classList.remove('show');
+        document.body.classList.add('audio-on');
+      } catch (e) {
+        console.warn('Audio unlock failed', e);
+        resumeBtn.classList.add('show');
+      } finally {
+        unlocking = false;
+      }
+    }
+
+    async function resumeAudio() {
+      if (!TunnelDrone.ctx) {
+        await unlockAudio();
+        return;
+      }
+      try {
+        await TunnelDrone.ctx.resume();
+        resumeBtn.classList.remove('show');
+      } catch (e) {
+        resumeBtn.classList.add('show');
+      }
+    }
+
+    function onGatePointer(e) {
+      e.preventDefault();
+      unlockAudio();
+    }
+    gate.addEventListener('click', onGatePointer);
+    gate.addEventListener('touchend', onGatePointer, { passive: false });
+    resumeBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      resumeAudio();
+    });
+    resumeBtn.addEventListener('touchend', function (e) {
+      e.preventDefault();
+      resumeAudio();
+    }, { passive: false });
+
+    const sceneEl = document.querySelector('a-scene');
+    sceneEl.addEventListener('enter-vr', function () {
+      // Immersive mode often suspends AudioContext — try resume; show tap if needed
+      if (TunnelDrone.ctx) {
+        TunnelDrone.ctx.resume().then(function () {
+          if (TunnelDrone.ctx.state !== 'running') resumeBtn.classList.add('show');
+        }).catch(function () {
+          resumeBtn.classList.add('show');
+        });
+      } else {
+        resumeBtn.classList.add('show');
+      }
+    });
+    sceneEl.addEventListener('exit-vr', function () {
+      resumeAudio();
+    });
+
+    // If context suspends later, surface the tap button
+    setInterval(function () {
+      if (!TunnelDrone.running || !TunnelDrone.ctx) return;
+      if (TunnelDrone.ctx.state === 'suspended' && gate.hidden) {
+        resumeBtn.classList.add('show');
+      }
+    }, 2000);
   </script>
 </body>
 </html>
