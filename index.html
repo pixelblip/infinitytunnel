@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 21</title>
+  <title>Rainbow Hex Tunnel 22</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel21 — playable grab without freezing (no per-frame text / setAttribute thrash).
+     * tunnel22 — no A-Frame hand models (those freeze Quest on appear); lite XR hands + grab.
      */
     const TunnelDrone = {
       ctx: null,
@@ -1906,7 +1906,7 @@
     });
 
     /**
-     * Floating toys — world offsets from #rig. Grabbed by air-toy-grabber.
+     * Floating toys — world offsets from #rig. Grabbed by lite-hands.
      * Avoid setAttribute in the hot path (Quest freezes on text/scale thrash).
      */
     AFRAME.registerComponent('air-toy', {
@@ -2032,89 +2032,141 @@
     });
 
     /**
-     * Lean grabber — fingertip world positions only.
-     * No a-text updates, no getJointPose spam, no setAttribute in the loop.
+     * Lite XR hands + grab.
+     * Does NOT use A-Frame hand-tracking-controls (mesh GLB load / dots spheres
+     * freeze Quest the moment hands appear). Reads WebXR joints directly and
+     * draws 3 tiny THREE spheres per hand — no A-Frame entities in the hot path.
      */
-    AFRAME.registerComponent('air-toy-grabber', {
+    AFRAME.registerComponent('lite-hands', {
       schema: {
-        pinchMax: { type: 'number', default: 0.048 },
-        releaseMin: { type: 'number', default: 0.075 }
+        pinchMax: { type: 'number', default: 0.05 },
+        releaseMin: { type: 'number', default: 0.08 },
+        grabRadius: { type: 'number', default: 0.22 }
       },
       init: function () {
         const THREE = AFRAME.THREE;
-        this._heldToy = null;
-        this._heldSide = null;
+        this.THREE = THREE;
         this._thumb = new THREE.Vector3();
         this._index = new THREE.Vector3();
-        this._mid = new THREE.Vector3();
+        this._wrist = new THREE.Vector3();
         this._toyW = new THREE.Vector3();
+        this._heldToy = null;
+        this._heldSide = null;
         this._toys = null;
-        this._left = null;
-        this._right = null;
         this._rig = null;
+        this._hands = {
+          left: this._makeHand(0x7dffd4),
+          right: this._makeHand(0xff9ad8)
+        };
       },
-      _cache: function () {
-        if (!this._left) this._left = document.getElementById('leftHand');
-        if (!this._right) this._right = document.getElementById('rightHand');
+      _makeHand: function (colorHex) {
+        const THREE = AFRAME.THREE;
+        const group = new THREE.Group();
+        group.visible = false;
+        const mk = (r) => {
+          const m = new THREE.Mesh(
+            new THREE.SphereGeometry(r, 8, 8),
+            new THREE.MeshBasicMaterial({
+              color: colorHex,
+              transparent: true,
+              opacity: 0.92
+            })
+          );
+          group.add(m);
+          return m;
+        };
+        return {
+          group: group,
+          wrist: mk(0.018),
+          thumb: mk(0.012),
+          index: mk(0.012),
+          mid: new THREE.Vector3(),
+          indexW: new THREE.Vector3(),
+          attached: false
+        };
+      },
+      _ensureAttached: function (hand) {
+        if (hand.attached) return;
+        const root = this.el.sceneEl && this.el.sceneEl.object3D;
+        if (!root) return;
+        root.add(hand.group);
+        hand.attached = true;
+      },
+      _poseJoint: function (frame, refSpace, xrHand, name, out) {
+        const joint = xrHand.get(name);
+        if (!joint) return false;
+        const pose = frame.getJointPose(joint, refSpace);
+        if (!pose) return false;
+        out.set(
+          pose.transform.position.x,
+          pose.transform.position.y,
+          pose.transform.position.z
+        );
         if (!this._rig) this._rig = document.getElementById('rig');
-        if (!this._toys || !this._toys.length) {
-          this._toys = this.el.sceneEl.querySelectorAll('[air-toy]');
-        }
+        if (this._rig) this._rig.object3D.localToWorld(out);
+        return true;
       },
-      _tipWorld: function (handEl, jointName, tipIndex, out) {
-        const ht = handEl && handEl.components['hand-tracking-controls'];
-        if (!ht || !ht.hasPoses) return false;
-        if (ht.jointEls && ht.jointEls[tipIndex] && ht.jointEls[tipIndex].object3D) {
-          ht.jointEls[tipIndex].object3D.getWorldPosition(out);
-          return true;
+      _readSide: function (side, frame, refSpace, xrHand) {
+        const hand = this._hands[side];
+        this._ensureAttached(hand);
+        const okW = this._poseJoint(frame, refSpace, xrHand, 'wrist', this._wrist);
+        const okT = this._poseJoint(frame, refSpace, xrHand, 'thumb-tip', this._thumb);
+        const okI = this._poseJoint(frame, refSpace, xrHand, 'index-finger-tip', this._index);
+        if (!okT || !okI) {
+          if (!okW && !okT && !okI) hand.group.visible = false;
+          return null;
         }
-        if (typeof ht.getBone === 'function') {
-          const bone = ht.getBone(jointName);
-          if (bone) {
-            bone.getWorldPosition(out);
-            return true;
-          }
-        }
-        if (jointName === 'index-finger-tip' && ht.indexTipPosition && this._rig) {
-          out.copy(ht.indexTipPosition);
-          this._rig.object3D.localToWorld(out);
-          return true;
-        }
-        return false;
-      },
-      _readHand: function (side, handEl) {
-        const okT = this._tipWorld(handEl, 'thumb-tip', 4, this._thumb);
-        const okI = this._tipWorld(handEl, 'index-finger-tip', 9, this._index);
-        if (!okT || !okI) return null;
-        this._mid.copy(this._thumb).add(this._index).multiplyScalar(0.5);
+        hand.group.visible = true;
+        if (okW) hand.wrist.position.copy(this._wrist);
+        hand.thumb.position.copy(this._thumb);
+        hand.index.position.copy(this._index);
+        hand.mid.copy(this._thumb).add(this._index).multiplyScalar(0.5);
+        hand.indexW.copy(this._index);
         const pinchDist = this._thumb.distanceTo(this._index);
-        const ht = handEl.components['hand-tracking-controls'];
-        const pinched = (ht && ht.isPinched) || pinchDist <= this.data.pinchMax;
         return {
           side: side,
-          pinched: pinched,
-          open: pinchDist >= this.data.releaseMin && !(ht && ht.isPinched),
-          mid: this._mid,
-          index: this._index
+          pinched: pinchDist <= this.data.pinchMax,
+          open: pinchDist >= this.data.releaseMin,
+          mid: hand.mid,
+          index: hand.indexW
         };
       },
       tock: function () {
-        this._cache();
-        const left = this._left;
-        const right = this._right;
+        const sceneEl = this.el.sceneEl;
+        const renderer = sceneEl && sceneEl.renderer;
+        if (!renderer || !renderer.xr || !renderer.xr.isPresenting) {
+          this._hands.left.group.visible = false;
+          this._hands.right.group.visible = false;
+          return;
+        }
+        const frame = sceneEl.frame;
+        const session = renderer.xr.getSession();
+        const refSpace = renderer.xr.getReferenceSpace();
+        if (!frame || !session || !refSpace) return;
+
+        if (!this._toys) this._toys = sceneEl.querySelectorAll('[air-toy]');
         const toys = this._toys;
-        if (!toys || !toys.length) return;
+
+        const infos = { left: null, right: null };
+        for (let i = 0; i < session.inputSources.length; i++) {
+          const src = session.inputSources[i];
+          if (!src.hand) continue;
+          const side = src.handedness;
+          if (side !== 'left' && side !== 'right') continue;
+          infos[side] = this._readSide(side, frame, refSpace, src.hand);
+        }
+        if (!infos.left) this._hands.left.group.visible = false;
+        if (!infos.right) this._hands.right.group.visible = false;
 
         if (this._heldToy && this._heldSide) {
-          const handEl = this._heldSide === 'left' ? left : right;
-          const info = this._readHand(this._heldSide, handEl);
+          const info = infos[this._heldSide];
           if (!info || info.open) {
             this._heldToy.release();
             this._heldToy = null;
             this._heldSide = null;
-            return;
+          } else {
+            this._heldToy.followWorld(info.mid);
           }
-          this._heldToy.followWorld(info.mid);
           return;
         }
 
@@ -2123,36 +2175,39 @@
           if (toy && !toy.held) toy.setHover(false);
         }
 
-        const sides = [
-          { side: 'left', el: left },
-          { side: 'right', el: right }
-        ];
         let best = null;
         let bestDist = Infinity;
         let bestInfo = null;
+        const radius = this.data.grabRadius;
 
-        for (let h = 0; h < sides.length; h++) {
-          const info = this._readHand(sides[h].side, sides[h].el);
-          if (!info) continue;
+        ['left', 'right'].forEach((side) => {
+          const info = infos[side];
+          if (!info) return;
           for (let i = 0; i < toys.length; i++) {
             const toy = toys[i].components['air-toy'];
             if (!toy || toy.held) continue;
             toy.el.object3D.getWorldPosition(this._toyW);
             const d = this._toyW.distanceTo(info.index);
-            if (d < toy.data.grabRadius * 1.7) toy.setHover(true);
-            if (info.pinched && d <= toy.data.grabRadius && d < bestDist) {
+            if (d < radius * 1.7) toy.setHover(true);
+            if (info.pinched && d <= (toy.data.grabRadius || radius) && d < bestDist) {
               bestDist = d;
               best = toy;
               bestInfo = info;
             }
           }
-        }
+        });
 
         if (best && bestInfo) {
           best.grabAt(bestInfo.mid);
           this._heldToy = best;
           this._heldSide = bestInfo.side;
         }
+      },
+      remove: function () {
+        ['left', 'right'].forEach((s) => {
+          const hand = this._hands[s];
+          if (hand.group.parent) hand.group.parent.remove(hand.group);
+        });
       }
     });
 
@@ -2168,7 +2223,7 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel21 · pinch near a toy · open hand to drop</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel22 · lite hands · pinch near a toy</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
@@ -2274,17 +2329,9 @@
         look-controls="enabled: true"
         wasd-controls="enabled: false"
       ></a-camera>
-      <a-entity
-        id="leftHand"
-        hand-tracking-controls="hand: left; modelStyle: mesh; modelColor: #7dffd4"
-      ></a-entity>
-      <a-entity
-        id="rightHand"
-        hand-tracking-controls="hand: right; modelStyle: mesh; modelColor: #ff9ad8"
-      ></a-entity>
     </a-entity>
 
-    <a-entity air-toy-grabber></a-entity>
+    <a-entity lite-hands></a-entity>
     <a-entity hex-tunnel="speed: 0.024"></a-entity>
   </a-scene>
 
@@ -2351,7 +2398,7 @@
     const sceneEl = document.querySelector('a-scene');
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel21.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel22.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
@@ -2411,19 +2458,8 @@
       enterVrNow();
     }, { passive: false });
 
-    function forceHandsVisible() {
-      ['leftHand', 'rightHand'].forEach(function (id) {
-        const hand = document.getElementById(id);
-        if (!hand) return;
-        hand.object3D.visible = true;
-        const ht = hand.components['hand-tracking-controls'];
-        if (ht && ht.mesh) ht.mesh.visible = true;
-      });
-    }
-
     sceneEl.addEventListener('enter-vr', function () {
       document.body.classList.add('vr-on');
-      forceHandsVisible();
       if (TunnelDrone.ctx) {
         TunnelDrone.ctx.resume().then(function () {
           if (TunnelDrone.ctx.state !== 'running') resumeBtn.classList.add('show');
