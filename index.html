@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 31</title>
+  <title>Rainbow Hex Tunnel 32</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel31 — yellow corner spin trails + fidget toys.
+     * tunnel32 — yellow corner trails (horizontal spin, manual rotate for Quest).
      */
     const TunnelDrone = {
       ctx: null,
@@ -1621,9 +1621,10 @@
         this.SEG_COUNT = 36;
         this.WALL_THICK = 0.1;
         this.WHITE_EVERY = 18;
-        this.PLANE_SIZE = 0.36;
+        this.PLANE_SIZE = 0.38;
         this.PLANE_GAP = 1.1;
         this.PLANES_PER_LINE = 18;
+        this._cornerSpin = 0;
         this.camZ = 0;
         this.segments = [];
         this.cornerPlanes = [];
@@ -1712,7 +1713,8 @@
       },
 
       buildCornerPlanes() {
-        const cornerR = (this.RADIUS / Math.cos(Math.PI / this.SIDES)) * 0.92;
+        // Horizontal yellow squares in each hex corner groove — spin on Z (visible from bore)
+        const cornerR = (this.RADIUS / Math.cos(Math.PI / this.SIDES)) * 0.86;
 
         for (let c = 0; c < this.SIDES; c++) {
           const angle = c * (Math.PI * 2 / this.SIDES);
@@ -1721,28 +1723,26 @@
           const planes = [];
 
           for (let i = 0; i < this.PLANES_PER_LINE; i++) {
-            const z = -i * this.PLANE_GAP;
-            const anchor = document.createElement('a-entity');
-            anchor.setAttribute('position', `${cx} ${cy} ${z}`);
-
             const plane = document.createElement('a-plane');
             plane.setAttribute('width', this.PLANE_SIZE);
             plane.setAttribute('height', this.PLANE_SIZE);
-            plane.setAttribute('rotation', '90 0 0');
+            plane.setAttribute('position', `${cx} ${cy} ${-i * this.PLANE_GAP}`);
             plane.setAttribute(
               'material',
-              'shader: flat; color: #ffff00; emissive: #ffe600; emissiveIntensity: 1.25; side: double; transparent: false'
+              'shader: flat; color: #ffff00; emissive: #ffe600; emissiveIntensity: 1.5; side: double; depthWrite: false; transparent: false'
             );
-            const dur = 14000;
-            plane.setAttribute(
-              'animation',
-              `property: rotation; from: 90 0 0; to: 90 0 360; loop: true; dur: ${dur}; delay: ${(i / this.PLANES_PER_LINE) * dur}; easing: linear`
-            );
-            anchor.appendChild(plane);
-            this.el.appendChild(anchor);
-            anchor.object3D.position.set(cx, cy, z);
-            anchor.object3D.lookAt(0, 0, z);
-            planes.push(anchor);
+            plane._spinOff = (i / this.PLANES_PER_LINE) * Math.PI * 2;
+            this.el.appendChild(plane);
+            planes.push(plane);
+
+            // Boost render order once mesh exists
+            plane.addEventListener('loaded', () => {
+              const mesh = plane.getObject3D('mesh');
+              if (mesh) {
+                mesh.renderOrder = 8;
+                if (mesh.material) mesh.material.depthWrite = false;
+              }
+            });
           }
           this.cornerPlanes.push({ planes, cx, cy });
         }
@@ -1809,6 +1809,17 @@
         this.rig.object3D.position.z = this.camZ;
         this.recycle();
         this.segments.forEach((seg) => this.paintSegment(seg));
+
+        // Spin corner yellow squares (manual — reliable on Quest vs animation component)
+        if (this.cornerPlanes && this.cornerPlanes.length) {
+          this._cornerSpin += (delta / 16.67) * 0.014;
+          this.cornerPlanes.forEach(({ planes }) => {
+            planes.forEach((plane) => {
+              const off = plane._spinOff || 0;
+              plane.object3D.rotation.set(0, 0, this._cornerSpin + off);
+            });
+          });
+        }
 
         // Gentle wall emissive shimmer — doesn't change structure
         const shimmer = 0.55 + 0.12 * Math.sin(time * 0.0015);
@@ -2575,7 +2586,7 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel31 · yellow corner trails · fidget toys</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel32 · yellow corner trails · fidget toys</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
@@ -2760,7 +2771,7 @@
     });
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel31.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel32.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
