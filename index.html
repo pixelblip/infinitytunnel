@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 8</title>
+  <title>Rainbow Hex Tunnel 9</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -43,7 +43,7 @@
   </style>
   <script>
     /**
-     * tunnel8 — reachable fidget spinner + working pinch grab (hands at chest height).
+     * tunnel9 — centred in the bore; reliable pinch toys; visible hands.
      */
     const TunnelDrone = {
       ctx: null,
@@ -1884,322 +1884,180 @@
       }
     });
 
-    /** Psychedelic held object — hue-cycles, trails sparks, reacts when grabbed */
-    AFRAME.registerComponent('trippy-toy', {
+    /**
+     * Distance-based pinch grab — does not rely on OBB colliders.
+     * Pinch thumb+index near the toy to hold it; release to let it float home.
+     */
+    AFRAME.registerComponent('pinch-play-toy', {
       schema: {
-        home: { type: 'vec3', default: { x: 0.28, y: -0.12, z: -0.55 } },
-        hueSpeed: { type: 'number', default: 40 }
+        homeSide: { type: 'number', default: 1 },
+        homeDist: { type: 'number', default: 0.5 },
+        homeDown: { type: 'number', default: 0.05 },
+        grabRadius: { type: 'number', default: 0.22 }
       },
       init: function () {
-        this.grabbed = false;
-        this.rig = null;
-        this._lastPos = new AFRAME.THREE.Vector3();
-        this._tmp = new AFRAME.THREE.Vector3();
-        this.trail = [];
-        this.el.object3D.getWorldPosition(this._lastPos);
-        // A-Frame emits grabstarted/ended on the HAND — listen on scene
-        const scene = this.el.sceneEl;
-        this._onGrabStart = (e) => {
-          if (e.detail && e.detail.grabbedEl === this.el) this.grabbed = true;
-        };
-        this._onGrabEnd = (e) => {
-          if (e.detail && e.detail.grabbedEl === this.el) {
-            this.grabbed = false;
-            this._returnHome = true;
-          }
-        };
-        scene.addEventListener('grabstarted', this._onGrabStart);
-        scene.addEventListener('grabended', this._onGrabEnd);
+        const THREE = AFRAME.THREE;
+        this.held = false;
+        this.holdHand = null;
+        this._tmp = new THREE.Vector3();
+        this._tmp2 = new THREE.Vector3();
+        this._quat = new THREE.Quaternion();
+        this._last = new THREE.Vector3();
+        this.trails = [];
+        this.el.object3D.getWorldPosition(this._last);
+        this._onPinchStart = this.onPinchStart.bind(this);
+        this._onPinchEnd = this.onPinchEnd.bind(this);
+        this.el.sceneEl.addEventListener('loaded', () => this.bindHands());
+        setTimeout(() => this.bindHands(), 500);
       },
-      remove: function () {
-        const scene = this.el.sceneEl;
-        if (!scene) return;
-        scene.removeEventListener('grabstarted', this._onGrabStart);
-        scene.removeEventListener('grabended', this._onGrabEnd);
+      bindHands: function () {
+        ['leftHand', 'rightHand'].forEach((id) => {
+          const hand = document.getElementById(id);
+          if (!hand) return;
+          hand.addEventListener('pinchstarted', this._onPinchStart);
+          hand.addEventListener('pinchended', this._onPinchEnd);
+        });
       },
-      spawnSpark: function (worldPos, hue) {
-        const scene = this.el.sceneEl;
-        if (!scene || this.trail.length > 48) return;
-        const spark = document.createElement('a-sphere');
-        const s = 0.02 + Math.random() * 0.045;
-        spark.setAttribute('radius', s);
-        spark.setAttribute('position', worldPos.x + ' ' + worldPos.y + ' ' + worldPos.z);
-        spark.setAttribute(
+      onPinchStart: function (e) {
+        if (this.held) return;
+        const pos = e.detail && e.detail.position;
+        if (!pos) return;
+        this.el.object3D.getWorldPosition(this._tmp);
+        if (this._tmp.distanceTo(pos) > this.data.grabRadius) return;
+        this.held = true;
+        this.holdHand = e.target;
+        this.el.setAttribute('scale', '1.2 1.2 1.2');
+      },
+      onPinchEnd: function (e) {
+        if (!this.held) return;
+        if (this.holdHand && e.target !== this.holdHand) return;
+        this.held = false;
+        this.holdHand = null;
+        this.el.setAttribute('scale', '1 1 1');
+      },
+      spawnTrail: function (p, hue) {
+        if (this.trails.length > 40) return;
+        const s = document.createElement('a-sphere');
+        const rad = 0.015 + Math.random() * 0.03;
+        s.setAttribute('radius', rad);
+        s.setAttribute('position', p.x + ' ' + p.y + ' ' + p.z);
+        s.setAttribute(
           'material',
-          'shader: flat; color: hsl(' + (hue % 360) + ',100%,60%); ' +
-          'emissive: hsl(' + (hue % 360) + ',100%,45%); emissiveIntensity: 1; ' +
-          'transparent: true; opacity: 0.9; depthWrite: false'
+          'shader: flat; color: hsl(' + (hue % 360) + ',100%,60%); transparent: true; opacity: 0.9; depthWrite: false'
         );
-        scene.appendChild(spark);
-        this.trail.push({
-          el: spark,
-          life: 0.7 + Math.random() * 0.5,
+        this.el.sceneEl.appendChild(s);
+        this.trails.push({
+          el: s,
           age: 0,
-          vx: (Math.random() - 0.5) * 0.35,
-          vy: (Math.random() - 0.5) * 0.35,
-          vz: (Math.random() - 0.5) * 0.15
+          life: 0.55 + Math.random() * 0.4,
+          vx: (Math.random() - 0.5) * 0.4,
+          vy: (Math.random() - 0.5) * 0.4,
+          vz: (Math.random() - 0.5) * 0.4
         });
       },
       tick: function (t, dtMs) {
         const dt = Math.min(0.05, (dtMs || 16) / 1000);
-        if (!this.rig) this.rig = document.getElementById('rig');
+        const THREE = AFRAME.THREE;
         const cam = document.getElementById('cam');
-        const hue = (t * 0.001 * this.data.hueSpeed) % 360;
-        const bright = this.grabbed ? 0.95 : 0.55;
-        this.el.setAttribute(
-          'material',
-          'color: hsl(' + hue + ',95%,58%); metalness: 0.35; roughness: 0.12; ' +
-          'emissive: hsl(' + ((hue + 40) % 360) + ',100%,40%); emissiveIntensity: ' + bright + '; ' +
-          'transparent: true; opacity: 0.92'
-        );
+        const hue = (t * 0.06) % 360;
 
-        // Do not touch pose while A-Frame is holding us (matrix owned by grab)
-        if (this.grabbed) {
-          this.el.object3D.getWorldPosition(this._tmp);
-          const moved = this._tmp.distanceTo(this._lastPos);
-          if (moved > 0.012) {
-            for (let i = 0; i < 3; i++) this.spawnSpark(this._tmp, hue + i * 25);
-          }
-          this._lastPos.copy(this._tmp);
-        } else if (cam && this.rig) {
-          // Home at CHEST / hand height in front of the camera (not the floor!)
-          const h = this.data.home;
-          const bob = Math.sin(t * 0.0025) * 0.03;
-          cam.object3D.getWorldPosition(this._tmp);
-          const forward = new AFRAME.THREE.Vector3(0, 0, -1).applyQuaternion(cam.object3D.getWorldQuaternion(new AFRAME.THREE.Quaternion()));
-          const right = new AFRAME.THREE.Vector3(1, 0, 0).applyQuaternion(cam.object3D.getWorldQuaternion(new AFRAME.THREE.Quaternion()));
-          const target = this._lastPos;
-          target.copy(this._tmp)
-            .addScaledVector(forward, Math.abs(h.z) || 0.45)
-            .addScaledVector(right, h.x)
-            .add(new AFRAME.THREE.Vector3(0, h.y + bob, 0));
-          if (this.el.parentNode !== this.el.sceneEl) {
-            this.el.sceneEl.appendChild(this.el);
-          }
-          this.el.object3D.position.lerp(target, 1 - Math.pow(0.0008, dt));
-          this.el.object3D.rotation.y += 0.7 * dt;
-          this.el.object3D.rotation.x += 0.4 * dt;
+        // Colour pulse
+        const core = this.el.querySelector('a-sphere') || this.el.querySelector('[geometry]');
+        if (core) {
+          core.setAttribute(
+            'material',
+            'color: hsl(' + hue + ',95%,60%); metalness: 0.3; roughness: 0.12; ' +
+            'emissive: hsl(' + ((hue + 30) % 360) + ',100%,45%); emissiveIntensity: ' +
+            (this.held ? 1.1 : 0.65) + '; transparent: true; opacity: 0.92'
+          );
         }
-
-        // Age trail sparks
-        for (let i = this.trail.length - 1; i >= 0; i--) {
-          const s = this.trail[i];
-          s.age += dt;
-          if (!s.el.parentNode) {
-            this.trail.splice(i, 1);
-            continue;
-          }
-          const p = s.el.object3D.position;
-          p.x += s.vx * dt;
-          p.y += s.vy * dt;
-          p.z += s.vz * dt;
-          const u = 1 - s.age / s.life;
-          s.el.setAttribute('material', 'opacity', Math.max(0, u * 0.9));
-          if (s.age >= s.life) {
-            s.el.parentNode.removeChild(s.el);
-            this.trail.splice(i, 1);
-          }
-        }
-
         const light = this.el.querySelector('[light]');
         if (light) {
           light.setAttribute(
             'light',
             'type: point; color: hsl(' + hue + ',100%,65%); intensity: ' +
-            (this.grabbed ? 2.4 : 1.1) + '; distance: 4'
+            (this.held ? 2.2 : 1.2) + '; distance: 3.5'
           );
         }
-      }
-    });
 
-    /**
-     * Colourful fidget spinner — pinch to grab, flick to spin.
-     * Uses A-Frame hand-tracking-grab-controls + local spin physics.
-     */
-    AFRAME.registerComponent('fidget-spinner', {
-      schema: {
-        side: { type: 'number', default: 0.22 }
-      },
-      init: function () {
-        this.grabbed = false;
-        this.spinVel = 6;
-        this._prevPinch = null;
-        this._tmp = new AFRAME.THREE.Vector3();
-        this._tmp2 = new AFRAME.THREE.Vector3();
-        this._quat = new AFRAME.THREE.Quaternion();
-        this._quat2 = new AFRAME.THREE.Quaternion();
-        this.rotor = this.el.querySelector('.rotor');
-        const scene = this.el.sceneEl;
-        this._onGrabStart = (e) => {
-          if (e.detail && e.detail.grabbedEl === this.el) {
-            this.grabbed = true;
-            this.spinVel *= 0.3;
+        if (this.held && this.holdHand) {
+          const tracker = this.holdHand.components['pinch-tracker'];
+          if (tracker && tracker.pinchPos) {
+            this.el.object3D.position.copy(tracker.pinchPos);
+          } else {
+            this.holdHand.object3D.getWorldPosition(this._tmp);
+            this.el.object3D.position.copy(this._tmp);
           }
-        };
-        this._onGrabEnd = (e) => {
-          if (e.detail && e.detail.grabbedEl === this.el) {
-            this.grabbed = false;
-            // Flick boost from recent motion
-            if (this._flick) {
-              this.spinVel += this._flick;
-              this._flick = 0;
-            } else {
-              this.spinVel += 4 + Math.random() * 8;
-            }
-            this._returnHome = true;
+          this.el.object3D.getWorldPosition(this._tmp);
+          if (this._tmp.distanceTo(this._last) > 0.01) {
+            this.spawnTrail(this._tmp, hue);
+            this.spawnTrail(this._tmp, hue + 40);
           }
-        };
-        scene.addEventListener('grabstarted', this._onGrabStart);
-        scene.addEventListener('grabended', this._onGrabEnd);
-
-        // Track pinch motion while held to add spin
-        ['leftHand', 'rightHand'].forEach((id) => {
-          const hand = document.getElementById(id);
-          if (!hand) return;
-          hand.addEventListener('pinchmoved', (e) => {
-            if (!this.grabbed || !e.detail || !e.detail.position) return;
-            const p = e.detail.position;
-            if (this._prevPinch) {
-              const dx = p.x - this._prevPinch.x;
-              const dy = p.y - this._prevPinch.y;
-              this.spinVel += (dx + dy) * 40;
-              this._flick = (dx + dy) * 60;
-            }
-            if (!this._prevPinch) this._prevPinch = new AFRAME.THREE.Vector3();
-            this._prevPinch.set(p.x, p.y, p.z);
-          });
-          hand.addEventListener('pinchended', () => { this._prevPinch = null; });
-        });
-      },
-      tick: function (t, dtMs) {
-        const dt = Math.min(0.05, (dtMs || 16) / 1000);
-        const cam = document.getElementById('cam');
-        const hue = (t * 0.05) % 360;
-
-        // Spin the colourful arms
-        if (this.rotor) {
-          this.rotor.object3D.rotation.z += this.spinVel * dt;
-        }
-        // Friction — stays spinning a while
-        this.spinVel *= Math.pow(0.22, dt);
-        if (!this.grabbed && Math.abs(this.spinVel) < 1.2) {
-          this.spinVel += (this.spinVel >= 0 ? 1.2 : -1.2) - this.spinVel;
+          this._last.copy(this._tmp);
+        } else if (cam) {
+          // Float at chest height in front of camera (tunnel centre, not floor)
+          cam.object3D.getWorldPosition(this._tmp);
+          cam.object3D.getWorldQuaternion(this._quat);
+          const forward = this._tmp2.set(0, 0, -1).applyQuaternion(this._quat);
+          const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this._quat);
+          const bob = Math.sin(t * 0.0022) * 0.03;
+          const target = new THREE.Vector3()
+            .copy(this._tmp)
+            .addScaledVector(forward, this.data.homeDist)
+            .addScaledVector(right, this.data.homeSide * 0.28)
+            .add(new THREE.Vector3(0, -this.data.homeDown + bob, 0));
+          if (this.el.parentNode !== this.el.sceneEl) this.el.sceneEl.appendChild(this.el);
+          this.el.object3D.position.lerp(target, 1 - Math.pow(0.0004, dt));
+          this.el.object3D.rotation.y += dt * 0.8;
         }
 
-        // Colour wash on lobes
-        const lobes = this.el.querySelectorAll('.lobe');
-        for (let i = 0; i < lobes.length; i++) {
-          const h = (hue + i * 120) % 360;
-          lobes[i].setAttribute(
-            'material',
-            'color: hsl(' + h + ',95%,58%); metalness: 0.55; roughness: 0.15; ' +
-            'emissive: hsl(' + h + ',100%,40%); emissiveIntensity: ' +
-            (0.45 + Math.min(1.2, Math.abs(this.spinVel) * 0.08))
-          );
+        // Age trails
+        for (let i = this.trails.length - 1; i >= 0; i--) {
+          const tr = this.trails[i];
+          tr.age += dt;
+          if (!tr.el.parentNode) {
+            this.trails.splice(i, 1);
+            continue;
+          }
+          tr.el.object3D.position.x += tr.vx * dt;
+          tr.el.object3D.position.y += tr.vy * dt;
+          tr.el.object3D.position.z += tr.vz * dt;
+          const u = 1 - tr.age / tr.life;
+          tr.el.setAttribute('material', 'opacity', Math.max(0, u * 0.9));
+          if (tr.age >= tr.life) {
+            tr.el.parentNode.removeChild(tr.el);
+            this.trails.splice(i, 1);
+          }
         }
-        const cap = this.el.querySelector('.cap');
-        if (cap) {
-          cap.setAttribute(
-            'material',
-            'color: #fff6c8; metalness: 0.9; roughness: 0.1; emissive: #ffe566; emissiveIntensity: 0.8'
-          );
-        }
-
-        // Soft glow light
-        const light = this.el.querySelector('[light]');
-        if (light) {
-          light.setAttribute(
-            'light',
-            'type: point; color: hsl(' + hue + ',100%,70%); intensity: ' +
-            (0.8 + Math.min(2, Math.abs(this.spinVel) * 0.12)) + '; distance: 3.5'
-          );
-        }
-
-        if (this.grabbed || !cam) return;
-
-        // Float at hand height in front of you
-        cam.object3D.getWorldPosition(this._tmp);
-        cam.object3D.getWorldQuaternion(this._quat);
-        const forward = this._tmp2.set(0, 0, -1).applyQuaternion(this._quat);
-        const right = new AFRAME.THREE.Vector3(1, 0, 0).applyQuaternion(this._quat);
-        const bob = Math.sin(t * 0.002) * 0.025;
-        const target = new AFRAME.THREE.Vector3()
-          .copy(this._tmp)
-          .addScaledVector(forward, 0.45)
-          .addScaledVector(right, this.data.side)
-          .add(new AFRAME.THREE.Vector3(0, -0.12 + bob, 0));
-        if (this.el.parentNode !== this.el.sceneEl) {
-          this.el.sceneEl.appendChild(this.el);
-        }
-        this.el.object3D.position.lerp(target, 1 - Math.pow(0.0005, dt));
-        // Face the user gently
-        this.el.object3D.quaternion.slerp(this._quat, 0.08);
       }
     });
 
-    /** Re-broadcast hand grab events on the scene (reliable for toys) */
-    AFRAME.registerComponent('grab-bus', {
+    /** Store latest pinch point on each hand for toys to follow */
+    AFRAME.registerComponent('pinch-tracker', {
       init: function () {
-        const scene = this.el;
-        const bind = (hand) => {
-          if (!hand || hand._grabBus) return;
-          hand._grabBus = true;
-          hand.addEventListener('grabstarted', (e) => {
-            scene.emit('grabstarted', e.detail, false);
-          });
-          hand.addEventListener('grabended', (e) => {
-            scene.emit('grabended', e.detail, false);
-          });
-        };
-        const hook = () => {
-          bind(document.getElementById('leftHand'));
-          bind(document.getElementById('rightHand'));
-        };
-        hook();
-        this.el.addEventListener('loaded', hook);
-      }
-    });
-
-    /** Watch pinch on hands — spray sparks from palm */
-    AFRAME.registerComponent('hand-trippy', {
-      init: function () {
+        this.pinchPos = null;
         this.el.addEventListener('pinchstarted', (e) => {
-          const d = e.detail && e.detail.position;
-          if (!d) return;
-          const scene = this.el.sceneEl;
-          for (let i = 0; i < 8; i++) {
-            const spark = document.createElement('a-sphere');
-            spark.setAttribute('radius', 0.015 + Math.random() * 0.03);
-            spark.setAttribute('position', d.x + ' ' + d.y + ' ' + d.z);
-            const hue = (performance.now() * 0.08 + i * 40) % 360;
-            spark.setAttribute(
-              'material',
-              'shader: flat; color: hsl(' + hue + ',100%,65%); transparent: true; opacity: 0.95'
-            );
-            scene.appendChild(spark);
-            const vx = (Math.random() - 0.5) * 0.8;
-            const vy = (Math.random() - 0.5) * 0.8;
-            const vz = (Math.random() - 0.5) * 0.8;
-            let age = 0;
-            const iv = setInterval(() => {
-              age += 0.05;
-              if (!spark.parentNode || age > 0.7) {
-                clearInterval(iv);
-                if (spark.parentNode) spark.parentNode.removeChild(spark);
-                return;
-              }
-              spark.object3D.position.x += vx * 0.05;
-              spark.object3D.position.y += vy * 0.05;
-              spark.object3D.position.z += vz * 0.05;
-            }, 50);
+          if (e.detail && e.detail.position) {
+            this.pinchPos = e.detail.position.clone
+              ? e.detail.position.clone()
+              : new AFRAME.THREE.Vector3(e.detail.position.x, e.detail.position.y, e.detail.position.z);
           }
+        });
+        this.el.addEventListener('pinchmoved', (e) => {
+          if (e.detail && e.detail.position) {
+            if (!this.pinchPos) this.pinchPos = new AFRAME.THREE.Vector3();
+            this.pinchPos.set(e.detail.position.x, e.detail.position.y, e.detail.position.z);
+          }
+        });
+        this.el.addEventListener('pinchended', () => {
+          this.pinchPos = null;
         });
       }
     });
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel8 · pinch the fidget spinner · colourful hands</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel9 · centred · pinch the plasma orb</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
 
   <a-scene
@@ -2207,16 +2065,13 @@
     fog="type: exponential; color: #000008; density: 0.006"
     renderer="antialias: true; colorManagement: true; physicallyCorrectLights: true"
     vr-mode-ui="enabled: true"
-    webxr="optionalFeatures: hand-tracking, local-floor, bounded-floor"
-    obb-collider="showColliders: false"
-    grab-bus
+    webxr="referenceSpaceType: local; optionalFeatures: hand-tracking, local-floor, bounded-floor"
   >
     <a-entity light="type: ambient; color: #778899; intensity: 0.4"></a-entity>
     <a-entity id="mood-light" light="type: point; color: #ff4080; intensity: 0.65; distance: 28" position="0 0 -5"></a-entity>
     <a-entity light="type: point; color: #b8ffd0; intensity: 1.6; distance: 10" position="-0.8 0.3 -2.0"></a-entity>
     <a-entity light="type: directional; color: #ffffff; intensity: 1.15" position="2 3 1"></a-entity>
 
-    <!-- Cube is NOT under the camera. World position updated along tunnel only. -->
     <a-box
       id="hero-cube"
       tunnel-anchored-cube="dist: 2.4"
@@ -2229,51 +2084,39 @@
     ></a-box>
     <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 3.2; distance: 8" position="0.25 0.25 -1.8"></a-entity>
 
-    <!-- Fidget spinner — floats at hand height; pinch lobes to grab & flick -->
-    <a-entity
-      id="fidget"
-      grabbable
-      fidget-spinner="side: 0.2"
-      position="0.2 1.2 -0.45"
-      scale="1 1 1"
-    >
-      <a-entity light="type: point; color: #ff88ee; intensity: 1; distance: 3"></a-entity>
-      <!-- bearing / cap -->
-      <a-cylinder
-        class="cap"
-        radius="0.035"
-        height="0.028"
-        material="color: #fff6c8; metalness: 0.9; roughness: 0.1; emissive: #ffe566; emissiveIntensity: 0.7"
-      ></a-cylinder>
-      <a-entity class="rotor">
-        <a-sphere class="lobe" position="0.09 0 0" radius="0.048"
-          material="color: #ff4d9a; emissive: #ff2a7a; emissiveIntensity: 0.6"></a-sphere>
-        <a-sphere class="lobe" position="-0.045 0 0.078" radius="0.048"
-          material="color: #4dffc3; emissive: #22e0a0; emissiveIntensity: 0.6"></a-sphere>
-        <a-sphere class="lobe" position="-0.045 0 -0.078" radius="0.048"
-          material="color: #6a8cff; emissive: #4060ff; emissiveIntensity: 0.6"></a-sphere>
-        <!-- arms -->
-        <a-box position="0.045 0 0" width="0.08" height="0.016" depth="0.028"
-          material="color: #ffcc66; metalness: 0.6; roughness: 0.2; emissive: #ffaa22; emissiveIntensity: 0.35"></a-box>
-        <a-box position="-0.022 0 0.039" rotation="0 60 0" width="0.08" height="0.016" depth="0.028"
-          material="color: #88ffee; metalness: 0.6; roughness: 0.2; emissive: #44ddcc; emissiveIntensity: 0.35"></a-box>
-        <a-box position="-0.022 0 -0.039" rotation="0 -60 0" width="0.08" height="0.016" depth="0.028"
-          material="color: #c8a0ff; metalness: 0.6; roughness: 0.2; emissive: #9966ff; emissiveIntensity: 0.35"></a-box>
-      </a-entity>
+    <!-- Trippy plasma orb — pinch (thumb+index) to hold, wave for trails -->
+    <a-entity id="plasma-toy" pinch-play-toy position="0.25 0 -0.5">
+      <a-sphere
+        radius="0.09"
+        material="color: #ff66cc; metalness: 0.2; roughness: 0.15; emissive: #ff2299; emissiveIntensity: 0.85; transparent: true; opacity: 0.92"
+      ></a-sphere>
+      <a-torus
+        radius="0.13"
+        radius-tubular="0.012"
+        material="shader: flat; color: #66fff0; transparent: true; opacity: 0.75"
+        animation="property: rotation; to: 360 180 360; loop: true; dur: 7000; easing: linear"
+      ></a-torus>
+      <a-torus
+        radius="0.16"
+        radius-tubular="0.008"
+        rotation="90 0 0"
+        material="shader: flat; color: #ffe66a; transparent: true; opacity: 0.65"
+        animation="property: rotation; to: 180 360 720; loop: true; dur: 11000; easing: linear"
+      ></a-torus>
+      <a-entity light="type: point; color: #ff66cc; intensity: 1.4; distance: 3.5"></a-entity>
     </a-entity>
 
-    <!-- Extra soft orb to pinch too -->
-    <a-entity
-      id="prism-ball"
-      grabbable
-      trippy-toy="home: -0.25 -0.12 0.45; hueSpeed: 70"
-      position="-0.25 1.15 -0.42"
-      geometry="primitive: icosahedron; radius: 0.07"
-      material="color: #66ffcc; metalness: 0.5; roughness: 0.08; emissive: #22ffaa; emissiveIntensity: 0.65"
-    >
-      <a-entity light="type: point; color: #66ffcc; intensity: 1.0; distance: 3"></a-entity>
+    <!-- Second smaller sparkle for the other hand -->
+    <a-entity id="sparkle-toy" pinch-play-toy="homeSide: -1; homeDist: 0.48; homeDown: 0.08" position="-0.25 0 -0.48">
+      <a-entity
+        geometry="primitive: octahedron; radius: 0.07"
+        material="color: #66ffcc; metalness: 0.45; roughness: 0.1; emissive: #22ffaa; emissiveIntensity: 0.7"
+        animation="property: rotation; to: 360 360 0; loop: true; dur: 9000; easing: linear"
+      ></a-entity>
+      <a-entity light="type: point; color: #66ffcc; intensity: 1.1; distance: 3"></a-entity>
     </a-entity>
 
+    <!-- Rig at tunnel centre (y=0). referenceSpace local = no floor boost. -->
     <a-entity id="rig" position="0 0 0">
       <a-camera
         id="cam"
@@ -2283,18 +2126,16 @@
       ></a-camera>
     </a-entity>
 
-    <!-- Hands at scene root so XR poses / grab colliders stay correct -->
+    <!-- Hands: scene root + hand-tracking only (pinch-play-toy handles grab) -->
     <a-entity
       id="leftHand"
-      hand-tracking-controls="hand: left; modelStyle: mesh; modelColor: #9bffe0"
-      hand-tracking-grab-controls="hand: left; color: #9bffe0; hoverColor: #ffe600; hoverEnabled: true"
-      hand-trippy
+      hand-tracking-controls="hand: left; modelStyle: mesh; modelColor: #7dffd4; modelOpacity: 0.95"
+      pinch-tracker
     ></a-entity>
     <a-entity
       id="rightHand"
-      hand-tracking-controls="hand: right; modelStyle: mesh; modelColor: #ffb8e8"
-      hand-tracking-grab-controls="hand: right; color: #ffb8e8; hoverColor: #ffe600; hoverEnabled: true"
-      hand-trippy
+      hand-tracking-controls="hand: right; modelStyle: mesh; modelColor: #ff9ad8; modelOpacity: 0.95"
+      pinch-tracker
     ></a-entity>
 
     <a-entity hex-tunnel="speed: 0.052"></a-entity>
