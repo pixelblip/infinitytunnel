@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 20</title>
+  <title>Rainbow Hex Tunnel 21</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel20 — world-space hand grab (touch or pinch) so toys are actually playable.
+     * tunnel21 — playable grab without freezing (no per-frame text / setAttribute thrash).
      */
     const TunnelDrone = {
       ctx: null,
@@ -1906,27 +1906,26 @@
     });
 
     /**
-     * Floating toys in front of you. Positions are world-space offsets from #rig.
-     * Grabbing is handled by air-toy-grabber (world fingertip positions).
+     * Floating toys — world offsets from #rig. Grabbed by air-toy-grabber.
+     * Avoid setAttribute in the hot path (Quest freezes on text/scale thrash).
      */
     AFRAME.registerComponent('air-toy', {
       schema: {
         spawnX: { type: 'number', default: 0 },
         spawnY: { type: 'number', default: 0 },
         spawnZ: { type: 'number', default: -0.35 },
-        grabRadius: { type: 'number', default: 0.18 },
+        grabRadius: { type: 'number', default: 0.2 },
         spin: { type: 'number', default: 0.35 },
         hueSpeed: { type: 'number', default: 45 }
       },
       init: function () {
-        const THREE = AFRAME.THREE;
         this.held = false;
         this.hover = false;
         this.hue = Math.random() * 360;
+        this._hueAcc = 0;
         this.ox = this.data.spawnX;
         this.oy = this.data.spawnY;
         this.oz = this.data.spawnZ;
-        this._world = new THREE.Vector3();
         this.ensureSceneChild();
         this.pinToRig();
         this.el.sceneEl.addEventListener('enter-vr', () => {
@@ -1946,27 +1945,27 @@
         this.el.object3D.position.set(r.x + this.ox, r.y + this.oy, r.z + this.oz);
       },
       setHover: function (on) {
+        if (this.hover === on || this.held) return;
         this.hover = on;
-        if (!this.held) {
-          this.el.setAttribute('scale', on ? '1.2 1.2 1.2' : '1 1 1');
-        }
+        const s = on ? 1.18 : 1;
+        this.el.object3D.scale.set(s, s, s);
       },
       grabAt: function (worldPos) {
         this.held = true;
         this.hover = false;
         this.el.object3D.position.set(worldPos.x, worldPos.y, worldPos.z);
+        this.el.object3D.scale.set(1.22, 1.22, 1.22);
         this.hue = (this.hue + 50) % 360;
-        this.el.setAttribute('scale', '1.25 1.25 1.25');
+        this.applyHue(true);
       },
       followWorld: function (worldPos) {
         if (!this.held) return;
         this.el.object3D.position.set(worldPos.x, worldPos.y, worldPos.z);
-        this.hue = (this.hue + 1.2) % 360;
       },
       release: function () {
         if (!this.held) return;
         this.held = false;
-        this.el.setAttribute('scale', '1 1 1');
+        this.el.object3D.scale.set(1, 1, 1);
         const rig = document.getElementById('rig');
         if (rig) {
           const r = rig.object3D.position;
@@ -1975,31 +1974,7 @@
           this.oy = p.y - r.y;
           this.oz = p.z - r.z;
         }
-      },
-      spawnSpark: function () {
-        const p = this.el.object3D.position;
-        const hex = this.hueToHex(this.hue);
-        const s = document.createElement('a-sphere');
-        s.setAttribute('radius', 0.008 + Math.random() * 0.012);
-        s.setAttribute('position', p.x + ' ' + p.y + ' ' + p.z);
-        s.setAttribute(
-          'material',
-          'shader: flat; color: ' + hex + '; transparent: true; opacity: 0.85; depthWrite: false'
-        );
-        this.el.sceneEl.appendChild(s);
-        const life = 0.4 + Math.random() * 0.25;
-        let age = 0;
-        const iv = setInterval(() => {
-          age += 0.04;
-          if (!s.parentNode || age > life) {
-            clearInterval(iv);
-            if (s.parentNode) s.parentNode.removeChild(s);
-            return;
-          }
-          s.object3D.position.y += 0.008;
-          const mesh = s.getObject3D('mesh');
-          if (mesh && mesh.material) mesh.material.opacity = Math.max(0, 1 - age / life);
-        }, 40);
+        this.applyHue(false);
       },
       hueToHex: function (h) {
         h = ((h % 360) + 360) % 360;
@@ -2031,18 +2006,25 @@
       },
       tick: function (t, dtMs) {
         const dt = Math.min(0.05, (dtMs || 16) / 1000);
-        this.ensureSceneChild();
         if (this.held) {
-          this.hue = (this.hue + this.data.hueSpeed * dt * 2.2) % 360;
-          if (Math.random() < 0.14) this.spawnSpark();
+          this.hue = (this.hue + this.data.hueSpeed * dt * 2) % 360;
+          this._hueAcc += dt;
+          if (this._hueAcc > 0.08) {
+            this._hueAcc = 0;
+            this.applyHue(true);
+          }
         } else {
           this.pinToRig();
-          this.hue = (this.hue + this.data.hueSpeed * dt * 0.15) % 360;
+          this.hue = (this.hue + this.data.hueSpeed * dt * 0.12) % 360;
           this.el.object3D.rotation.x += this.data.spin * dt * 0.35;
           this.el.object3D.rotation.y += this.data.spin * dt;
           this.el.object3D.rotation.z += this.data.spin * dt * 0.2;
+          this._hueAcc += dt;
+          if (this._hueAcc > 0.2) {
+            this._hueAcc = 0;
+            this.applyHue(false);
+          }
         }
-        this.applyHue(this.held);
       },
       tock: function () {
         if (!this.held) this.pinToRig();
@@ -2050,17 +2032,13 @@
     });
 
     /**
-     * World-space grabber: reads fingertip WORLD positions from the hand skeleton
-     * (or raw WebXR joints), so parenting / flying #rig cannot break hit-tests.
-     *
-     * Grab if: hand is near a toy AND (pinch OR poke/touch).
-     * Release when fingers open (thumb–index far apart).
+     * Lean grabber — fingertip world positions only.
+     * No a-text updates, no getJointPose spam, no setAttribute in the loop.
      */
     AFRAME.registerComponent('air-toy-grabber', {
       schema: {
-        pinchMax: { type: 'number', default: 0.05 },
-        releaseMin: { type: 'number', default: 0.07 },
-        pokeFrames: { type: 'number', default: 6 }
+        pinchMax: { type: 'number', default: 0.048 },
+        releaseMin: { type: 'number', default: 0.075 }
       },
       init: function () {
         const THREE = AFRAME.THREE;
@@ -2070,13 +2048,26 @@
         this._index = new THREE.Vector3();
         this._mid = new THREE.Vector3();
         this._toyW = new THREE.Vector3();
-        this._poke = { left: 0, right: 0 };
-        this._status = null;
+        this._toys = null;
+        this._left = null;
+        this._right = null;
+        this._rig = null;
       },
-      _jointWorldFromHand: function (handEl, jointName, out) {
+      _cache: function () {
+        if (!this._left) this._left = document.getElementById('leftHand');
+        if (!this._right) this._right = document.getElementById('rightHand');
+        if (!this._rig) this._rig = document.getElementById('rig');
+        if (!this._toys || !this._toys.length) {
+          this._toys = this.el.sceneEl.querySelectorAll('[air-toy]');
+        }
+      },
+      _tipWorld: function (handEl, jointName, tipIndex, out) {
         const ht = handEl && handEl.components['hand-tracking-controls'];
         if (!ht || !ht.hasPoses) return false;
-        // Mesh model: look up by joint name (skeleton order ≠ JOINTS index)
+        if (ht.jointEls && ht.jointEls[tipIndex] && ht.jointEls[tipIndex].object3D) {
+          ht.jointEls[tipIndex].object3D.getWorldPosition(out);
+          return true;
+        }
         if (typeof ht.getBone === 'function') {
           const bone = ht.getBone(jointName);
           if (bone) {
@@ -2084,81 +2075,36 @@
             return true;
           }
         }
-        // Dots model: jointEls follow JOINTS order
-        const tipIndex = jointName === 'thumb-tip' ? 4
-          : jointName === 'index-finger-tip' ? 9
-          : -1;
-        if (tipIndex >= 0 && ht.jointEls && ht.jointEls[tipIndex] && ht.jointEls[tipIndex].object3D) {
-          ht.jointEls[tipIndex].object3D.getWorldPosition(out);
-          return true;
-        }
-        return false;
-      },
-      _jointWorldFromXr: function (side, jointName, out) {
-        const sceneEl = this.el.sceneEl;
-        const renderer = sceneEl && sceneEl.renderer;
-        if (!renderer || !renderer.xr) return false;
-        const frame = sceneEl.frame;
-        const session = renderer.xr.getSession && renderer.xr.getSession();
-        const refSpace = renderer.xr.getReferenceSpace && renderer.xr.getReferenceSpace();
-        if (!frame || !session || !refSpace) return false;
-        for (let i = 0; i < session.inputSources.length; i++) {
-          const src = session.inputSources[i];
-          if (!src.hand || src.handedness !== side) continue;
-          const joint = src.hand.get(jointName);
-          if (!joint) continue;
-          const pose = frame.getJointPose(joint, refSpace);
-          if (!pose) continue;
-          // Reference-space → Three world via #rig (hands/camera live under #rig)
-          out.set(
-            pose.transform.position.x,
-            pose.transform.position.y,
-            pose.transform.position.z
-          );
-          const rig = document.getElementById('rig');
-          if (rig) rig.object3D.localToWorld(out);
+        if (jointName === 'index-finger-tip' && ht.indexTipPosition && this._rig) {
+          out.copy(ht.indexTipPosition);
+          this._rig.object3D.localToWorld(out);
           return true;
         }
         return false;
       },
       _readHand: function (side, handEl) {
-        let okThumb = this._jointWorldFromHand(handEl, 'thumb-tip', this._thumb);
-        let okIndex = this._jointWorldFromHand(handEl, 'index-finger-tip', this._index);
-        if (!okThumb) okThumb = this._jointWorldFromXr(side, 'thumb-tip', this._thumb);
-        if (!okIndex) okIndex = this._jointWorldFromXr(side, 'index-finger-tip', this._index);
-        if (!okThumb || !okIndex) return null;
+        const okT = this._tipWorld(handEl, 'thumb-tip', 4, this._thumb);
+        const okI = this._tipWorld(handEl, 'index-finger-tip', 9, this._index);
+        if (!okT || !okI) return null;
         this._mid.copy(this._thumb).add(this._index).multiplyScalar(0.5);
         const pinchDist = this._thumb.distanceTo(this._index);
+        const ht = handEl.components['hand-tracking-controls'];
+        const pinched = (ht && ht.isPinched) || pinchDist <= this.data.pinchMax;
         return {
           side: side,
-          handEl: handEl,
-          pinchDist: pinchDist,
-          pinching: pinchDist <= this.data.pinchMax,
-          open: pinchDist >= this.data.releaseMin,
+          pinched: pinched,
+          open: pinchDist >= this.data.releaseMin && !(ht && ht.isPinched),
           mid: this._mid,
           index: this._index
         };
       },
-      _setStatus: function (msg) {
-        if (!this._status) this._status = document.getElementById('grabStatus');
-        if (this._status) this._status.setAttribute('value', msg);
-      },
       tock: function () {
-        const left = document.getElementById('leftHand');
-        const right = document.getElementById('rightHand');
-        const hands = [
-          { side: 'left', el: left },
-          { side: 'right', el: right }
-        ];
-        const toys = this.el.sceneEl.querySelectorAll('[air-toy]');
+        this._cache();
+        const left = this._left;
+        const right = this._right;
+        const toys = this._toys;
+        if (!toys || !toys.length) return;
 
-        // Update hover + poke counters
-        for (let i = 0; i < toys.length; i++) {
-          const toy = toys[i].components['air-toy'];
-          if (toy && !toy.held) toy.setHover(false);
-        }
-
-        // Continue held grab
         if (this._heldToy && this._heldSide) {
           const handEl = this._heldSide === 'left' ? left : right;
           const info = this._readHand(this._heldSide, handEl);
@@ -2166,82 +2112,50 @@
             this._heldToy.release();
             this._heldToy = null;
             this._heldSide = null;
-            this._setStatus('released — pinch near a toy');
             return;
           }
           this._heldToy.followWorld(info.mid);
-          this._setStatus('holding · open fingers to drop');
           return;
         }
 
-        // Find nearest toy under either hand
+        for (let i = 0; i < toys.length; i++) {
+          const toy = toys[i].components['air-toy'];
+          if (toy && !toy.held) toy.setHover(false);
+        }
+
+        const sides = [
+          { side: 'left', el: left },
+          { side: 'right', el: right }
+        ];
         let best = null;
         let bestDist = Infinity;
         let bestInfo = null;
-        let anyHand = false;
 
-        for (let h = 0; h < hands.length; h++) {
-          const info = this._readHand(hands[h].side, hands[h].el);
+        for (let h = 0; h < sides.length; h++) {
+          const info = this._readHand(sides[h].side, sides[h].el);
           if (!info) continue;
-          anyHand = true;
-          let handBest = null;
-          let handBestDist = Infinity;
           for (let i = 0; i < toys.length; i++) {
             const toy = toys[i].components['air-toy'];
             if (!toy || toy.held) continue;
             toy.el.object3D.getWorldPosition(this._toyW);
             const d = this._toyW.distanceTo(info.index);
-            if (d < toy.data.grabRadius * 1.8) toy.setHover(true);
-            if (d < handBestDist) {
-              handBestDist = d;
-              handBest = toy;
-            }
-            if (d < bestDist) {
+            if (d < toy.data.grabRadius * 1.7) toy.setHover(true);
+            if (info.pinched && d <= toy.data.grabRadius && d < bestDist) {
               bestDist = d;
               best = toy;
               bestInfo = info;
             }
           }
-          if (handBest && handBestDist <= handBest.data.grabRadius) {
-            this._poke[info.side] = (this._poke[info.side] || 0) + 1;
-          } else {
-            this._poke[info.side] = 0;
-          }
         }
 
-        if (!anyHand) {
-          this._setStatus('show hands (put controllers down)');
-          return;
-        }
-
-        if (!best || !bestInfo) {
-          this._setStatus('reach toward a toy');
-          return;
-        }
-
-        const inReach = bestDist <= best.data.grabRadius;
-        const pokeReady = (this._poke[bestInfo.side] || 0) >= this.data.pokeFrames;
-        const canGrab = inReach && (bestInfo.pinching || pokeReady);
-
-        this._setStatus(
-          inReach
-            ? (bestInfo.pinching ? 'pinch! grabbing…' : 'touching — pinch or hold finger on it')
-            : ('near ' + bestDist.toFixed(2) + 'm — move closer')
-        );
-
-        if (canGrab) {
+        if (best && bestInfo) {
           best.grabAt(bestInfo.mid);
           this._heldToy = best;
           this._heldSide = bestInfo.side;
-          this._poke.left = 0;
-          this._poke.right = 0;
-        } else if (!inReach) {
-          this._poke[bestInfo.side] = 0;
         }
       }
     });
 
-    /** Inner Escher / atom parts counter-spin */
     AFRAME.registerComponent('counter-spin', {
       schema: { speed: { type: 'number', default: 1 } },
       tick: function (t, dtMs) {
@@ -2254,11 +2168,11 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel20 · touch a toy then pinch · open hand to drop</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel21 · pinch near a toy · open hand to drop</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
-  <p id="handHint" style="display:none;position:fixed;bottom:3.2rem;left:50%;transform:translateX(-50%);z-index:10002;color:#c8c4b8;font:0.6rem Georgia,serif;letter-spacing:0.06em;text-align:center;opacity:0.8">Put controllers down · touch a toy &amp; pinch</p>
+  <p id="handHint" style="display:none;position:fixed;bottom:3.2rem;left:50%;transform:translateX(-50%);z-index:10002;color:#c8c4b8;font:0.6rem Georgia,serif;letter-spacing:0.06em;text-align:center;opacity:0.8">Put controllers down · pinch near a toy to grab</p>
 
   <a-scene
     background="color: #000008"
@@ -2359,25 +2273,14 @@
         position="0 0 0"
         look-controls="enabled: true"
         wasd-controls="enabled: false"
-      >
-        <a-entity position="0 -0.22 -0.55" rotation="-8 0 0">
-          <a-text
-            id="grabStatus"
-            value="put controllers down"
-            align="center"
-            width="1.1"
-            color="#ffe600"
-            opacity="0.85"
-          ></a-text>
-        </a-entity>
-      </a-camera>
+      ></a-camera>
       <a-entity
         id="leftHand"
-        hand-tracking-controls="hand: left; modelStyle: dots; modelColor: #7dffd4"
+        hand-tracking-controls="hand: left; modelStyle: mesh; modelColor: #7dffd4"
       ></a-entity>
       <a-entity
         id="rightHand"
-        hand-tracking-controls="hand: right; modelStyle: dots; modelColor: #ff9ad8"
+        hand-tracking-controls="hand: right; modelStyle: mesh; modelColor: #ff9ad8"
       ></a-entity>
     </a-entity>
 
@@ -2448,7 +2351,7 @@
     const sceneEl = document.querySelector('a-scene');
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel20.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel21.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
