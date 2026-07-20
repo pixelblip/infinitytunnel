@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 29</title>
+  <title>Rainbow Hex Tunnel 30</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel29 — finger smoke drawing (vaporising rings & strokes), no corner trails.
+     * tunnel30 — fidget toys with lights & colour; no smoke, no corner trails.
      */
     const TunnelDrone = {
       ctx: null,
@@ -1734,29 +1734,6 @@
           this.el.appendChild(ring);
           this.wallFx.push({ el: ring, kind: 'ring', speed: 0.012 + Math.random() * 0.01 });
         }
-        for (let i = 0; i < 4; i++) {
-          const ang = Math.random() * Math.PI * 2;
-          const r = this.RADIUS * 0.92;
-          const spark = document.createElement('a-sphere');
-          spark.setAttribute('radius', 0.04 + Math.random() * 0.05);
-          spark.setAttribute(
-            'material',
-            `color: #ffe600; emissive: #ffaa00; emissiveIntensity: 0.9; opacity: 0.7; transparent: true; shader: flat`
-          );
-          spark.setAttribute(
-            'position',
-            `${Math.sin(ang) * r} ${Math.cos(ang) * r} ${-4 - Math.random() * 40}`
-          );
-          this.el.appendChild(spark);
-          this.wallFx.push({
-            el: spark,
-            kind: 'spark',
-            ang,
-            r,
-            bob: Math.random() * Math.PI * 2,
-            speed: 0.02 + Math.random() * 0.02
-          });
-        }
       },
 
       recycleWallFx() {
@@ -1862,8 +1839,7 @@
     });
 
     /**
-     * Floating toys — world offsets from #rig. Grabbed by lite-hands.
-     * Supports wrist twist while held + colourful play FX (pooled, not DOM thrash).
+     * Fidget toys — grab, twist, lights & colour cycles (Quest-light).
      */
     AFRAME.registerComponent('air-toy', {
       schema: {
@@ -1872,7 +1848,8 @@
         spawnZ: { type: 'number', default: -0.35 },
         grabRadius: { type: 'number', default: 0.2 },
         spin: { type: 'number', default: 0.35 },
-        hueSpeed: { type: 'number', default: 45 }
+        hueSpeed: { type: 'number', default: 45 },
+        kind: { type: 'string', default: 'orb' }
       },
       init: function () {
         const THREE = AFRAME.THREE;
@@ -1888,12 +1865,24 @@
         this._toyQ0 = new THREE.Quaternion();
         this._qDelta = new THREE.Quaternion();
         this._qInv = new THREE.Quaternion();
+        this._euler = new THREE.Euler();
         this._pulse = 0;
         this._sparks = [];
         this._sparkI = 0;
+        this._spinVel = 2 + Math.random() * 2;
+        this._clickFlash = 0;
+        this._twistAcc = 0;
+        this._fidgetT = Math.random() * 10;
+        this._arm = this.el.querySelector('[data-toy-arm]');
+        this._button = this.el.querySelector('[data-toy-button]');
+        this._gyroRings = this.el.querySelectorAll('[data-toy-ring]');
+        this._beads = this.el.querySelectorAll('[data-toy-bead]');
+        this._caps = this.el.querySelectorAll('[data-toy-cap]');
+        this._lightEl = this.el.querySelector('[data-toy-light]');
         this._initSparks();
         this.ensureSceneChild();
         this.pinToRig();
+        this.applyHue(false);
         this.el.sceneEl.addEventListener('enter-vr', () => {
           this.ensureSceneChild();
           this.pinToRig();
@@ -1943,24 +1932,41 @@
         this.held = true;
         this.hover = false;
         this.el.object3D.position.set(worldPos.x, worldPos.y, worldPos.z);
-        this.el.object3D.scale.set(1.25, 1.25, 1.25);
+        this.el.object3D.scale.set(1.2, 1.2, 1.2);
         this.hue = (this.hue + 70) % 360;
         this._pulse = 0;
+        this._twistAcc = 0;
+        this._spinVel = 8;
         if (wristQuat) {
           this._grabQ0.copy(wristQuat);
           this._toyQ0.copy(this.el.object3D.quaternion);
         }
         this.applyHue(true);
-        this._burst(worldPos, 6);
+        this._setLight(2.2);
+        this._burst(worldPos, 8);
       },
       followWorld: function (worldPos, wristQuat) {
         if (!this.held) return;
         this.el.object3D.position.set(worldPos.x, worldPos.y, worldPos.z);
         if (wristQuat) {
-          // Apply wrist rotation delta so twisting your hand turns the toy
           this._qInv.copy(this._grabQ0).invert();
           this._qDelta.copy(wristQuat).multiply(this._qInv);
           this.el.object3D.quaternion.copy(this._qDelta).multiply(this._toyQ0);
+          if (this.data.kind === 'clicker') {
+            const dy = this._twistDelta(wristQuat);
+            this._twistAcc += dy;
+            if (Math.abs(this._twistAcc) > 0.55) {
+              this._twistAcc = 0;
+              this._clickFlash = 0.35;
+              this.hue = (this.hue + 55) % 360;
+              this.applyHue(true);
+              this._burst(this.el.object3D.position, 5);
+              this._setLight(3);
+            }
+          }
+          if (this.data.kind === 'spinner') {
+            this._spinVel = Math.min(22, this._spinVel + Math.abs(this._twistDelta(wristQuat)) * 2);
+          }
         }
       },
       release: function () {
@@ -1977,6 +1983,7 @@
         }
         this._burst(this.el.object3D.position, 4);
         this.applyHue(false);
+        this._setLight(0.06);
       },
       _burst: function (pos, n) {
         this._initSparks();
@@ -2033,11 +2040,12 @@
         return '#' + to(f(0)) + to(f(8)) + to(f(4));
       },
       applyHue: function (held) {
-        const bright = held ? 1.35 : (this.hover ? 1.0 : 0.7);
-        const targets = this.el.querySelectorAll('[data-toy-surface]');
+        const bright = held ? 1.45 : (this.hover ? 1.05 : 0.75);
+        const targets = this.el.querySelectorAll('[data-toy-surface], [data-toy-part], [data-toy-bead], [data-toy-cap]');
         for (let i = 0; i < targets.length; i++) {
           const el = targets[i];
-          const hex = this.hueToHex(this.hue + i * 40);
+          const off = parseFloat(el.getAttribute('data-hue-off') || '0');
+          const hex = this.hueToHex(this.hue + off);
           const mesh = el.getObject3D('mesh');
           if (mesh && mesh.material) {
             if (mesh.material.color) mesh.material.color.set(hex);
@@ -2048,32 +2056,99 @@
           }
         }
       },
+      _setLight: function (intensity) {
+        if (!this._lightEl) return;
+        const light = this._lightEl.getObject3D('light');
+        if (light) light.intensity = intensity;
+      },
+      _twistDelta: function (wristQuat) {
+        this._qInv.copy(this._grabQ0).invert();
+        this._qDelta.copy(wristQuat).multiply(this._qInv);
+        this._euler.setFromQuaternion(this._qDelta);
+        return this._euler.y;
+      },
+      _tickFidget: function (dt) {
+        this._fidgetT += dt;
+        const kind = this.data.kind;
+        const held = this.held;
+        const boost = held ? 4 : 1;
+
+        if (kind === 'spinner' && this._arm) {
+          if (held) this._spinVel = Math.min(18, this._spinVel + dt * 6);
+          else this._spinVel = Math.max(2, this._spinVel - dt * 1.5);
+          this._arm.object3D.rotation.z += this._spinVel * dt * boost;
+        }
+
+        if (kind === 'clicker' && this._button) {
+          let z = 0.022;
+          if (this._clickFlash > 0) {
+            this._clickFlash -= dt;
+            z -= 0.018 * Math.sin(Math.min(1, this._clickFlash * 12) * Math.PI);
+          }
+          this._button.object3D.position.z = z;
+        }
+
+        if (kind === 'gyro' && this._gyroRings.length) {
+          for (let i = 0; i < this._gyroRings.length; i++) {
+            const ring = this._gyroRings[i];
+            const spd = (1.2 + i * 0.9) * boost;
+            ring.object3D.rotation.x += dt * spd * (i === 0 ? 1 : -1);
+            ring.object3D.rotation.y += dt * spd * 0.7;
+            ring.object3D.rotation.z += dt * spd * 0.45 * (i + 1);
+          }
+        }
+
+        if (kind === 'beads' && this._beads.length) {
+          for (let i = 0; i < this._beads.length; i++) {
+            const bead = this._beads[i];
+            const base = parseFloat(bead.getAttribute('data-base-x') || '0');
+            const wave = held ? 0.028 : 0.012;
+            const y = Math.sin(this._fidgetT * (2.2 + i * 0.3) + i * 1.1) * wave;
+            bead.object3D.position.set(base, y, 0);
+          }
+        }
+
+        if (kind === 'wand' && this._caps.length) {
+          const pulse = 1 + (held ? 0.35 : 0.15) * Math.sin(this._fidgetT * 5);
+          for (let i = 0; i < this._caps.length; i++) {
+            const cap = this._caps[i];
+            const s = 0.85 + pulse * 0.25;
+            cap.object3D.scale.set(s, s, s);
+          }
+        }
+
+        const glow = held
+          ? 1.6 + 0.6 * Math.sin(this._pulse)
+          : (this.hover ? 0.35 : 0.08);
+        this._setLight(glow);
+      },
       tick: function (t, dtMs) {
         const dt = Math.min(0.05, (dtMs || 16) / 1000);
         this._tickSparks(dt);
+        this._tickFidget(dt);
         if (this.held) {
           this.hue = (this.hue + this.data.hueSpeed * dt * 3.2) % 360;
           this._pulse += dt * 8;
-          const pulse = 1.18 + 0.1 * Math.sin(this._pulse);
+          const pulse = 1.15 + 0.12 * Math.sin(this._pulse);
           this.el.object3D.scale.set(pulse, pulse, pulse);
           this._hueAcc += dt;
-          if (this._hueAcc > 0.06) {
+          if (this._hueAcc > 0.05) {
             this._hueAcc = 0;
             this.applyHue(true);
           }
           this._fxAcc += dt;
-          if (this._fxAcc > 0.07) {
+          if (this._fxAcc > 0.08) {
             this._fxAcc = 0;
             this._emitSpark(this.el.object3D.position, false);
           }
         } else {
           this.pinToRig();
-          this.hue = (this.hue + this.data.hueSpeed * dt * 0.12) % 360;
+          this.hue = (this.hue + this.data.hueSpeed * dt * 0.15) % 360;
           this.el.object3D.rotation.x += this.data.spin * dt * 0.35;
           this.el.object3D.rotation.y += this.data.spin * dt;
           this.el.object3D.rotation.z += this.data.spin * dt * 0.2;
           this._hueAcc += dt;
-          if (this._hueAcc > 0.2) {
+          if (this._hueAcc > 0.18) {
             this._hueAcc = 0;
             this.applyHue(false);
           }
@@ -2085,15 +2160,13 @@
     });
 
     /**
-     * Lite XR hands + grab + smoke drawing (strokes & rings that vaporise).
+     * Lite XR hands + grab (no smoke FX).
      */
     AFRAME.registerComponent('lite-hands', {
       schema: {
         pinchMax: { type: 'number', default: 0.05 },
         releaseMin: { type: 'number', default: 0.08 },
-        grabRadius: { type: 'number', default: 0.22 },
-        drawSpeed: { type: 'number', default: 0.12 },
-        ringPinchMax: { type: 'number', default: 0.045 }
+        grabRadius: { type: 'number', default: 0.22 }
       },
       init: function () {
         const THREE = AFRAME.THREE;
@@ -2103,13 +2176,10 @@
         this._fwd = new THREE.Vector3();
         this._toyW = new THREE.Vector3();
         this._yAxis = new THREE.Vector3(0, 1, 0);
-        this._ringQ = new THREE.Quaternion();
         this._heldToy = null;
         this._heldSide = null;
         this._toys = null;
         this._rig = null;
-        this._fxRoot = null;
-        this._drawHue = 200 + Math.random() * 40;
         this._jointNames = [
           'wrist',
           'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
@@ -2155,58 +2225,6 @@
           left: this._makeHand(0x7dffd4),
           right: this._makeHand(0xff9ad8)
         };
-        this._smoke = [];
-        this._smokeI = 0;
-        this._rings = [];
-        this._ringI = 0;
-        this._wasPinched = { left: false, right: false };
-        this._wasRingPinch = { left: false, right: false };
-        this._drawHue = 200 + Math.random() * 40;
-        this._initFx();
-      },
-      _initFx: function () {
-        const THREE = AFRAME.THREE;
-        const root = this.el.sceneEl && this.el.sceneEl.object3D;
-        if (!root) {
-          this.el.sceneEl.addEventListener('loaded', () => this._initFx());
-          return;
-        }
-        if (this._fxRoot) return;
-        this._fxRoot = new THREE.Group();
-        root.add(this._fxRoot);
-
-        // Smoke puff pool — soft spheres that rise and fade
-        for (let i = 0; i < 96; i++) {
-          const m = new THREE.Mesh(
-            new THREE.SphereGeometry(0.016, 5, 5),
-            new THREE.MeshBasicMaterial({
-              color: 0xddeeff,
-              transparent: true,
-              opacity: 0,
-              depthWrite: false
-            })
-          );
-          m.visible = false;
-          this._fxRoot.add(m);
-          this._smoke.push({ mesh: m, life: 0, max: 0, vx: 0, vy: 0, vz: 0, grow: 1.6 });
-        }
-
-        // Smoke rings — torus shapes that expand and vaporise
-        for (let i = 0; i < 10; i++) {
-          const m = new THREE.Mesh(
-            new THREE.TorusGeometry(0.07, 0.014, 6, 20),
-            new THREE.MeshBasicMaterial({
-              color: 0xc8e8ff,
-              transparent: true,
-              opacity: 0,
-              depthWrite: false,
-              side: THREE.DoubleSide
-            })
-          );
-          m.visible = false;
-          this._fxRoot.add(m);
-          this._rings.push({ mesh: m, life: 0, max: 0, vx: 0, vy: 0, vz: 0, grow: 2.2 });
-        }
       },
       _makeHand: function (colorHex) {
         const THREE = AFRAME.THREE;
@@ -2290,10 +2308,7 @@
           wristW: new THREE.Vector3(),
           wristQ: new THREE.Quaternion(),
           prevIndex: new THREE.Vector3(),
-          prevDraw: new THREE.Vector3(),
-          drawDir: new THREE.Vector3(),
           hasPrev: false,
-          hasDraw: false,
           ok: {},
           attached: false
         };
@@ -2304,17 +2319,6 @@
         if (!root) return;
         root.add(hand.group);
         hand.attached = true;
-      },
-      _hueHex: function (h) {
-        h = ((h % 360) + 360) % 360;
-        const s = 0.95, l = 0.55;
-        const a = s * Math.min(l, 1 - l);
-        const f = (n) => {
-          const k = (n + h / 30) % 12;
-          return l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-        };
-        const c = (v) => Math.round(v * 255);
-        return (c(f(0)) << 16) + (c(f(8)) << 8) + c(f(4));
       },
       _poseJoint: function (frame, refSpace, xrHand, name, outPos, outQuat) {
         const joint = xrHand.get(name);
@@ -2354,133 +2358,6 @@
         }
         mesh.visible = false;
         return false;
-      },
-      _smokeHex: function (h, pale) {
-        h = ((h % 360) + 360) % 360;
-        const s = pale ? 0.35 : 0.55;
-        const l = pale ? 0.82 : 0.72;
-        const a = s * Math.min(l, 1 - l);
-        const f = (n) => {
-          const k = (n + h / 30) % 12;
-          return l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-        };
-        const c = (v) => Math.round(v * 255);
-        return (c(f(0)) << 16) + (c(f(8)) << 8) + c(f(4));
-      },
-      _emitPuff: function (pos, vel, fat) {
-        if (!this._smoke.length) return;
-        const p = this._smoke[this._smokeI % this._smoke.length];
-        this._smokeI++;
-        const speed = vel ? vel.length() : 0;
-        p.mesh.material.color.setHex(
-          this._smokeHex(this._drawHue + Math.random() * 50, !fat)
-        );
-        p.mesh.position.copy(pos);
-        p.mesh.position.x += (Math.random() - 0.5) * 0.012;
-        p.mesh.position.y += (Math.random() - 0.5) * 0.012;
-        p.mesh.position.z += (Math.random() - 0.5) * 0.012;
-        p.mesh.visible = true;
-        const sc = fat ? 0.55 + Math.random() * 0.45 : 0.35 + Math.random() * 0.35;
-        p.mesh.scale.set(sc, sc, sc);
-        p.life = 0;
-        p.max = fat ? 2.4 + Math.random() * 1.2 : 1.6 + Math.random() * 0.9;
-        p.grow = fat ? 2.8 : 2.0;
-        p.vx = (vel ? -vel.x * 0.08 : 0) + (Math.random() - 0.5) * 0.06;
-        p.vy = 0.06 + Math.random() * 0.1 + (fat ? 0.06 : 0.03);
-        p.vz = (vel ? -vel.z * 0.08 : 0) + (Math.random() - 0.5) * 0.06;
-        p.mesh.material.opacity = fat ? 0.72 : 0.58;
-      },
-      _strokeSmoke: function (from, to, vel, fat) {
-        const dist = from.distanceTo(to);
-        const step = fat ? 0.022 : 0.038;
-        const steps = Math.min(fat ? 10 : 5, Math.max(1, Math.ceil(dist / step)));
-        for (let i = 0; i <= steps; i++) {
-          const t = i / steps;
-          this._tmp.copy(from).lerp(to, t);
-          this._emitPuff(this._tmp, vel, fat);
-        }
-      },
-      _spawnSmokeRing: function (pos, normalQ, fat, drift) {
-        if (!this._rings.length) return;
-        const r = this._rings[this._ringI % this._rings.length];
-        this._ringI++;
-        r.mesh.visible = true;
-        r.mesh.position.copy(pos);
-        const base = fat ? 1.15 : 0.85;
-        r.mesh.scale.set(base, base, base);
-        r.mesh.material.opacity = fat ? 0.78 : 0.62;
-        r.mesh.material.color.setHex(this._smokeHex(this._drawHue + 30 + Math.random() * 40, false));
-        r.mesh.quaternion.copy(normalQ);
-        if (drift) {
-          this._fwd.set(0, 0, -1).applyQuaternion(normalQ).normalize();
-          const sp = fat ? 0.35 : 0.22;
-          r.vx = this._fwd.x * sp;
-          r.vy = this._fwd.y * sp * 0.35 + 0.04;
-          r.vz = this._fwd.z * sp;
-        } else {
-          r.vx = (Math.random() - 0.5) * 0.04;
-          r.vy = 0.05 + Math.random() * 0.06;
-          r.vz = (Math.random() - 0.5) * 0.04;
-        }
-        r.life = 0;
-        r.max = fat ? 2.8 : 2.0;
-        r.grow = fat ? 3.2 : 2.4;
-      },
-      _ringOrient: function (drawDir, wristQ, outQ) {
-        if (drawDir.lengthSq() > 2e-5) {
-          this._ringQuatFromDir(drawDir, outQ);
-        } else {
-          outQ.copy(wristQ);
-        }
-      },
-      _ringQuatFromDir: function (dir, outQ) {
-        if (dir.lengthSq() < 1e-6) {
-          outQ.identity();
-          return;
-        }
-        this._tmp.copy(dir).normalize();
-        this._fwd.set(0, 0, 1);
-        outQ.setFromUnitVectors(this._fwd, this._tmp);
-      },
-      _tickFx: function (dt) {
-        this._drawHue = (this._drawHue + dt * 18) % 360;
-        for (let i = 0; i < this._smoke.length; i++) {
-          const p = this._smoke[i];
-          if (!p.mesh.visible) continue;
-          p.life += dt;
-          if (p.life >= p.max) {
-            p.mesh.visible = false;
-            p.mesh.material.opacity = 0;
-            continue;
-          }
-          const k = p.life / p.max;
-          const fade = (1 - k) * (1 - k);
-          p.mesh.position.x += p.vx * dt;
-          p.mesh.position.y += p.vy * dt;
-          p.mesh.position.z += p.vz * dt;
-          p.vy += dt * 0.04;
-          p.mesh.material.opacity = fade * 0.75;
-          const sc = p.mesh.scale.x * (1 + dt * p.grow * 0.35);
-          p.mesh.scale.setScalar(Math.min(sc, 3.5));
-        }
-        for (let i = 0; i < this._rings.length; i++) {
-          const r = this._rings[i];
-          if (!r.mesh.visible) continue;
-          r.life += dt;
-          if (r.life >= r.max) {
-            r.mesh.visible = false;
-            r.mesh.material.opacity = 0;
-            continue;
-          }
-          const k = r.life / r.max;
-          r.mesh.position.x += r.vx * dt;
-          r.mesh.position.y += r.vy * dt + dt * 0.025;
-          r.mesh.position.z += r.vz * dt;
-          const g = 1 + k * r.grow;
-          r.mesh.scale.set(g, g, g * 0.92);
-          r.mesh.material.opacity = 0.7 * (1 - k) * (1 - k * 0.5);
-          r.mesh.rotation.z += dt * 0.6;
-        }
       },
       _readSide: function (side, frame, refSpace, xrHand) {
         const hand = this._hands[side];
@@ -2541,62 +2418,20 @@
         hand.thumbW.copy(hand.pos['thumb-tip']);
         hand.indexW.copy(hand.pos['index-finger-tip']);
         hand.middleW.copy(hand.ok['middle-finger-tip'] ? hand.pos['middle-finger-tip'] : hand.indexW);
-        hand.pinkyW.copy(hand.ok['pinky-finger-tip'] ? hand.pos['pinky-finger-tip'] : hand.indexW);
         hand.mid.copy(hand.thumbW).add(hand.indexW).multiplyScalar(0.5);
 
         const pinchDist = hand.thumbW.distanceTo(hand.indexW);
-        const ringDist = hand.thumbW.distanceTo(hand.pinkyW);
         return {
           side: side,
           pinched: pinchDist <= this.data.pinchMax,
           open: pinchDist >= this.data.releaseMin,
-          ringPinch: ringDist <= this.data.ringPinchMax,
           mid: hand.mid,
           index: hand.indexW,
-          middle: hand.middleW,
           wristQ: hand.wristQ,
           hand: hand
         };
       },
-      _updateSmokeDraw: function (info, dt, nearToy) {
-        if (!info) return;
-        const hand = info.hand;
-        const tip = info.index;
-        if (!hand.hasDraw) {
-          hand.prevDraw.copy(tip);
-          hand.hasDraw = true;
-          hand.hasPrev = true;
-          hand.prevIndex.copy(tip);
-          return;
-        }
-        this._tmp2.copy(tip).sub(hand.prevIndex);
-        const speed = dt > 0 ? this._tmp2.length() / dt : 0;
-        hand.drawDir.copy(this._tmp2);
-        hand.prevIndex.copy(tip);
-        const vel = this._tmp2;
-
-        // Pinch = paint dense smoke strokes (unless grabbing a toy)
-        if (info.pinched && !nearToy) {
-          this._strokeSmoke(hand.prevDraw, tip, vel, true);
-          hand.prevDraw.copy(tip);
-          return;
-        }
-
-        hand.prevDraw.copy(tip);
-
-        // Waving index / middle leaves lighter smoke wisps
-        if (speed > this.data.drawSpeed) {
-          this._strokeSmoke(tip, tip, vel, false);
-          if (info.middle && speed > this.data.drawSpeed * 1.2) {
-            this._emitPuff(info.middle, vel, false);
-          }
-        }
-      },
       tock: function (t, dtMs) {
-        const dt = Math.min(0.05, (dtMs || 16) / 1000);
-        this._initFx();
-        this._tickFx(dt);
-
         const sceneEl = this.el.sceneEl;
         const renderer = sceneEl && sceneEl.renderer;
         if (!renderer || !renderer.xr || !renderer.xr.isPresenting) {
@@ -2620,59 +2455,8 @@
           if (side !== 'left' && side !== 'right') continue;
           infos[side] = this._readSide(side, frame, refSpace, src.hand);
         }
-        if (!infos.left) {
-          this._hands.left.group.visible = false;
-          this._hands.left.hasPrev = false;
-          this._hands.left.hasDraw = false;
-        }
-        if (!infos.right) {
-          this._hands.right.group.visible = false;
-          this._hands.right.hasPrev = false;
-          this._hands.right.hasDraw = false;
-        }
-
-        const nearToyFor = { left: false, right: false };
-        if (this._toys) {
-          ['left', 'right'].forEach((side) => {
-            const info = infos[side];
-            if (!info) return;
-            for (let i = 0; i < toys.length; i++) {
-              const toy = toys[i].components['air-toy'];
-              if (!toy) continue;
-              toy.el.object3D.getWorldPosition(this._toyW);
-              if (this._toyW.distanceTo(info.index) < (toy.data.grabRadius || 0.22) * 1.15) {
-                nearToyFor[side] = true;
-                break;
-              }
-            }
-          });
-        }
-
-        this._updateSmokeDraw(infos.left, dt, nearToyFor.left);
-        this._updateSmokeDraw(infos.right, dt, nearToyFor.right);
-
-        ['left', 'right'].forEach((side) => {
-          const info = infos[side];
-          const was = this._wasPinched[side];
-          const wasRing = this._wasRingPinch[side];
-          if (!info) {
-            this._wasPinched[side] = false;
-            this._wasRingPinch[side] = false;
-            return;
-          }
-          if (wasRing && !info.ringPinch) {
-            this._ringOrient(info.hand.drawDir, info.wristQ, this._ringQ);
-            this._spawnSmokeRing(info.index, this._ringQ, true, true);
-          }
-          this._wasRingPinch[side] = info.ringPinch;
-
-          const holdingHere = this._heldToy && this._heldSide === side;
-          if (was && info.open && !holdingHere && !nearToyFor[side]) {
-            this._ringOrient(info.hand.drawDir, info.wristQ, this._ringQ);
-            this._spawnSmokeRing(info.index, this._ringQ, false, true);
-          }
-          this._wasPinched[side] = info.pinched;
-        });
+        if (!infos.left) this._hands.left.group.visible = false;
+        if (!infos.right) this._hands.right.group.visible = false;
 
         if (this._heldToy && this._heldSide) {
           const info = infos[this._heldSide];
@@ -2740,11 +2524,11 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel29 · draw with smoke · hands &amp; toys</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel30 · fidget toys · hands</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
-  <p id="handHint" style="display:none;position:fixed;bottom:3.2rem;left:50%;transform:translateX(-50%);z-index:10002;color:#c8c4b8;font:0.6rem Georgia,serif;letter-spacing:0.06em;text-align:center;opacity:0.8">Pinch &amp; move to draw smoke · release for rings · O-gesture for big rings</p>
+  <p id="handHint" style="display:none;position:fixed;bottom:3.2rem;left:50%;transform:translateX(-50%);z-index:10002;color:#c8c4b8;font:0.6rem Georgia,serif;letter-spacing:0.06em;text-align:center;opacity:0.8">Pinch toys to grab · twist wrist to spin &amp; click</p>
 
   <a-scene
     background="color: #000008"
@@ -2770,33 +2554,77 @@
     ></a-box>
     <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 1.4; distance: 6" position="0.25 0.25 -1.8"></a-entity>
 
-    <!-- Simple toys only (Quest-friendly) -->
-    <a-entity id="toy-orb" air-toy="spawnX: 0.2; spawnY: -0.12; spawnZ: -0.3; grabRadius: 0.22; hueSpeed: 55; spin: 0.4">
-      <a-sphere
+    <!-- Fidget toys — pinch to grab, twist to play -->
+    <a-entity id="toy-spinner" air-toy="kind: spinner; spawnX: 0.24; spawnY: -0.08; spawnZ: -0.28; grabRadius: 0.24; hueSpeed: 60; spin: 0.5">
+      <a-torus
         data-toy-surface
-        radius="0.055"
-        material="color: #88ccff; emissive: #4488ff; emissiveIntensity: 0.8"
-      ></a-sphere>
+        radius="0.075"
+        radius-tubular="0.013"
+        segments-radial="8"
+        segments-tubular="14"
+        material="color: #88ccff; emissive: #4488ff; emissiveIntensity: 0.85; metalness: 0.5; roughness: 0.25"
+      ></a-torus>
+      <a-entity data-toy-arm>
+        <a-sphere data-toy-part data-hue-off="0" radius="0.02" position="0.075 0 0" material="color: #ff88cc; emissive: #ff44aa; emissiveIntensity: 0.9"></a-sphere>
+        <a-sphere data-toy-part data-hue-off="120" radius="0.02" position="-0.037 0.065 0" material="color: #88ffcc; emissive: #44ffaa; emissiveIntensity: 0.9"></a-sphere>
+        <a-sphere data-toy-part data-hue-off="240" radius="0.02" position="-0.037 -0.065 0" material="color: #cc88ff; emissive: #aa44ff; emissiveIntensity: 0.9"></a-sphere>
+      </a-entity>
+      <a-entity data-toy-light light="type: point; color: #88ccff; intensity: 0; distance: 1.4"></a-entity>
     </a-entity>
 
-    <a-entity id="toy-box" air-toy="spawnX: -0.2; spawnY: -0.1; spawnZ: -0.32; grabRadius: 0.22; spin: 0.55; hueSpeed: 45">
+    <a-entity id="toy-clicker" air-toy="kind: clicker; spawnX: -0.24; spawnY: -0.08; spawnZ: -0.3; grabRadius: 0.24; hueSpeed: 50; spin: 0.35">
       <a-box
         data-toy-surface
-        width="0.09"
+        width="0.12"
         height="0.09"
-        depth="0.09"
-        material="color: #ff9ad8; emissive: #ff44aa; emissiveIntensity: 0.75"
+        depth="0.05"
+        material="color: #444466; emissive: #222244; emissiveIntensity: 0.4; metalness: 0.7; roughness: 0.35"
       ></a-box>
+      <a-box
+        data-toy-button
+        data-toy-part
+        data-hue-off="40"
+        width="0.07"
+        height="0.045"
+        depth="0.035"
+        position="0 0 0.022"
+        material="color: #ff6699; emissive: #ff2266; emissiveIntensity: 1.1; metalness: 0.3; roughness: 0.2"
+      ></a-box>
+      <a-entity data-toy-light light="type: point; color: #ff6699; intensity: 0; distance: 1.2"></a-entity>
     </a-entity>
 
-    <a-entity id="toy-gem" air-toy="spawnX: 0.0; spawnY: -0.14; spawnZ: -0.36; grabRadius: 0.22; spin: 0.7; hueSpeed: 70">
-      <a-cone
+    <a-entity id="toy-gyro" air-toy="kind: gyro; spawnX: 0.0; spawnY: -0.04; spawnZ: -0.34; grabRadius: 0.24; hueSpeed: 55; spin: 0.45">
+      <a-entity data-toy-ring rotation="0 0 0">
+        <a-torus data-toy-surface data-hue-off="0" radius="0.065" radius-tubular="0.01" segments-radial="6" segments-tubular="12" material="color: #66eeff; emissive: #22ccff; emissiveIntensity: 0.95"></a-torus>
+      </a-entity>
+      <a-entity data-toy-ring rotation="90 0 0">
+        <a-torus data-toy-surface data-hue-off="80" radius="0.052" radius-tubular="0.009" segments-radial="6" segments-tubular="12" material="color: #ffee66; emissive: #ffcc22; emissiveIntensity: 0.95"></a-torus>
+      </a-entity>
+      <a-entity data-toy-ring rotation="0 90 0">
+        <a-torus data-toy-surface data-hue-off="160" radius="0.04" radius-tubular="0.008" segments-radial="6" segments-tubular="10" material="color: #ff88ff; emissive: #ff44ff; emissiveIntensity: 0.95"></a-torus>
+      </a-entity>
+      <a-entity data-toy-light light="type: point; color: #aaccff; intensity: 0; distance: 1.3"></a-entity>
+    </a-entity>
+
+    <a-entity id="toy-beads" air-toy="kind: beads; spawnX: -0.12; spawnY: -0.16; spawnZ: -0.26; grabRadius: 0.22; hueSpeed: 65; spin: 0.3">
+      <a-sphere data-toy-bead data-toy-surface data-base-x="-0.06" data-hue-off="0" radius="0.018" position="-0.06 0 0" material="color: #ff8866; emissive: #ff4422; emissiveIntensity: 0.85"></a-sphere>
+      <a-sphere data-toy-bead data-toy-surface data-base-x="-0.03" data-hue-off="45" radius="0.018" position="-0.03 0 0" material="color: #ffbb66; emissive: #ff9922; emissiveIntensity: 0.85"></a-sphere>
+      <a-sphere data-toy-bead data-toy-surface data-base-x="0" data-hue-off="90" radius="0.02" position="0 0 0" material="color: #88ff88; emissive: #44ff44; emissiveIntensity: 0.9"></a-sphere>
+      <a-sphere data-toy-bead data-toy-surface data-base-x="0.03" data-hue-off="135" radius="0.018" position="0.03 0 0" material="color: #66bbff; emissive: #2288ff; emissiveIntensity: 0.85"></a-sphere>
+      <a-sphere data-toy-bead data-toy-surface data-base-x="0.06" data-hue-off="180" radius="0.018" position="0.06 0 0" material="color: #cc88ff; emissive: #9944ff; emissiveIntensity: 0.85"></a-sphere>
+      <a-entity data-toy-light light="type: point; color: #ffaa88; intensity: 0; distance: 1.1"></a-entity>
+    </a-entity>
+
+    <a-entity id="toy-wand" air-toy="kind: wand; spawnX: 0.14; spawnY: -0.2; spawnZ: -0.24; grabRadius: 0.22; hueSpeed: 75; spin: 0.6">
+      <a-cylinder
         data-toy-surface
-        radius-bottom="0.055"
-        height="0.1"
-        segments-radial="5"
-        material="color: #ffe066; emissive: #ffaa00; emissiveIntensity: 0.85"
-      ></a-cone>
+        radius="0.011"
+        height="0.14"
+        material="color: #8899aa; emissive: #445566; emissiveIntensity: 0.5; metalness: 0.8; roughness: 0.2"
+      ></a-cylinder>
+      <a-sphere data-toy-cap data-toy-part data-hue-off="0" radius="0.024" position="0 0.08 0" material="color: #ff44aa; emissive: #ff0088; emissiveIntensity: 1.2"></a-sphere>
+      <a-sphere data-toy-cap data-toy-part data-hue-off="180" radius="0.024" position="0 -0.08 0" material="color: #44aaff; emissive: #0088ff; emissiveIntensity: 1.2"></a-sphere>
+      <a-entity data-toy-light light="type: point; color: #ff66cc; intensity: 0; distance: 1.5"></a-entity>
     </a-entity>
 
     <a-entity id="rig" position="0 0 0">
@@ -2881,7 +2709,7 @@
     });
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel29.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel30.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
