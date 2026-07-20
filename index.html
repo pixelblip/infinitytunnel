@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 22</title>
+  <title>Rainbow Hex Tunnel 23</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel22 — no A-Frame hand models (those freeze Quest on appear); lite XR hands + grab.
+     * tunnel23 — Quest-light: far fewer meshes; lite hands; simple toys.
      */
     const TunnelDrone = {
       ctx: null,
@@ -1617,13 +1617,13 @@
       init() {
         this.SIDES = 6;
         this.RADIUS = 2.4;
-        this.SEG_LEN = 0.7;
-        this.SEG_COUNT = 110;
+        this.SEG_LEN = 1.4;
+        this.SEG_COUNT = 36;
         this.WALL_THICK = 0.1;
         this.WHITE_EVERY = 18;
         this.PLANE_SIZE = 0.3;
-        this.PLANE_GAP = 0.55;
-        this.PLANES_PER_LINE = 36;
+        this.PLANE_GAP = 1.2;
+        this.PLANES_PER_LINE = 6;
         this.camZ = 0;
         this.segments = [];
         this.cornerPlanes = [];
@@ -1633,7 +1633,8 @@
         this.cubeLight = document.querySelector('#cube-light');
 
         this.buildTunnel();
-        this.buildCornerPlanes();
+        // Corner planes skipped on Quest (were 200+ animated meshes)
+        this.cornerPlanes = [];
         this.buildWallLights();
         this._nextFxAt = 0;
       },
@@ -1729,11 +1730,6 @@
               'material',
               'color: #ffff00; emissive: #ffe600; emissiveIntensity: 0.85; side: double; metalness: 0.35; roughness: 0.3'
             );
-            const dur = 14000;
-            plane.setAttribute(
-              'animation',
-              `property: rotation; to: 0 0 360; loop: true; dur: ${dur}; delay: ${(i / this.PLANES_PER_LINE) * dur}; easing: linear`
-            );
             this.el.appendChild(plane);
             planes.push(plane);
           }
@@ -1765,11 +1761,11 @@
       buildWallLights() {
         // Soft emissive rings / glyphs that drift toward the camera
         this.wallFx = [];
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 3; i++) {
           const ring = document.createElement('a-ring');
           ring.setAttribute('radius-inner', '1.85');
           ring.setAttribute('radius-outer', '2.05');
-          ring.setAttribute('segments-theta', '48');
+          ring.setAttribute('segments-theta', '16');
           ring.setAttribute(
             'material',
             'color: #88ffff; emissive: #44ddff; emissiveIntensity: 0.55; opacity: 0.35; transparent: true; side: double; shader: flat'
@@ -1778,7 +1774,7 @@
           this.el.appendChild(ring);
           this.wallFx.push({ el: ring, kind: 'ring', speed: 0.012 + Math.random() * 0.01 });
         }
-        for (let i = 0; i < 14; i++) {
+        for (let i = 0; i < 4; i++) {
           const ang = Math.random() * Math.PI * 2;
           const r = this.RADIUS * 0.92;
           const spark = document.createElement('a-sphere');
@@ -2223,7 +2219,7 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel22 · lite hands · pinch near a toy</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel23 · lighter scene · pinch the orb or cube</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
@@ -2232,15 +2228,14 @@
   <a-scene
     background="color: #000008"
     fog="type: exponential; color: #000008; density: 0.006"
-    renderer="antialias: true; colorManagement: true; physicallyCorrectLights: true"
+    renderer="antialias: false; colorManagement: true; physicallyCorrectLights: false; maxCanvasWidth: 1600; maxCanvasHeight: 1600"
     vr-mode-ui="enabled: true"
     webxr="referenceSpaceType: local; optionalFeatures: hand-tracking, local-floor, bounded-floor"
     obb-collider="showColliders: false"
   >
-    <a-entity light="type: ambient; color: #778899; intensity: 0.4"></a-entity>
-    <a-entity id="mood-light" light="type: point; color: #ff4080; intensity: 0.65; distance: 28" position="0 0 -5"></a-entity>
-    <a-entity light="type: point; color: #b8ffd0; intensity: 1.6; distance: 10" position="-0.8 0.3 -2.0"></a-entity>
-    <a-entity light="type: directional; color: #ffffff; intensity: 1.15" position="2 3 1"></a-entity>
+    <a-entity light="type: ambient; color: #8899aa; intensity: 0.7"></a-entity>
+    <a-entity id="mood-light" light="type: point; color: #ff4080; intensity: 0.45; distance: 22" position="0 0 -5"></a-entity>
+    <a-entity light="type: directional; color: #ffffff; intensity: 0.55" position="1 2 0.5"></a-entity>
 
     <a-box
       id="hero-cube"
@@ -2252,74 +2247,25 @@
       material="color: #7dffb0; metalness: 1; roughness: 0.06; emissive: #1a8f4a; emissiveIntensity: 0.35"
       animation="property: rotation; to: 360 360 360; loop: true; dur: 28000; easing: linear"
     ></a-box>
-    <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 3.2; distance: 8" position="0.25 0.25 -1.8"></a-entity>
+    <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 1.4; distance: 6" position="0.25 0.25 -1.8"></a-entity>
 
-    <!-- Toys at scene root (world space). Grabber uses fingertip WORLD positions. -->
-    <a-entity id="toy-prism" air-toy="spawnX: 0.22; spawnY: -0.12; spawnZ: -0.32; grabRadius: 0.2; hueSpeed: 55">
-      <a-cone
-        data-toy-surface
-        radius-bottom="0.055"
-        radius-top="0.055"
-        height="0.12"
-        segments-radial="3"
-        material="color: #88ccff; metalness: 0.5; roughness: 0.08; emissive: #4488ff; emissiveIntensity: 0.75; transparent: true; opacity: 0.92"
-      ></a-cone>
-      <a-entity light="type: point; color: #88ccff; intensity: 1.1; distance: 2.8"></a-entity>
-    </a-entity>
-
-    <a-entity id="toy-atom" air-toy="spawnX: -0.2; spawnY: -0.1; spawnZ: -0.34; grabRadius: 0.2; spin: 0.25">
+    <!-- Simple toys only (Quest-friendly) -->
+    <a-entity id="toy-orb" air-toy="spawnX: 0.18; spawnY: -0.12; spawnZ: -0.3; grabRadius: 0.22; hueSpeed: 50; spin: 0.4">
       <a-sphere
         data-toy-surface
-        radius="0.03"
-        material="color: #ffe066; emissive: #ffaa00; emissiveIntensity: 1"
+        radius="0.055"
+        material="color: #88ccff; emissive: #4488ff; emissiveIntensity: 0.8"
       ></a-sphere>
-      <a-torus data-toy-surface radius="0.07" radius-tubular="0.005" rotation="90 0 0"
-        material="shader: flat; color: #66ffcc; transparent: true; opacity: 0.85"
-        animation="property: rotation; to: 360 0 0; loop: true; dur: 4200; easing: linear"></a-torus>
-      <a-torus data-toy-surface radius="0.085" radius-tubular="0.005" rotation="0 45 45"
-        material="shader: flat; color: #ff88dd; transparent: true; opacity: 0.8"
-        animation="property: rotation; to: 0 360 180; loop: true; dur: 5600; easing: linear"></a-torus>
-      <a-torus data-toy-surface radius="0.055" radius-tubular="0.004" rotation="45 0 90"
-        material="shader: flat; color: #aabbff; transparent: true; opacity: 0.75"
-        animation="property: rotation; to: 180 360 0; loop: true; dur: 3800; easing: linear"></a-torus>
-      <a-entity light="type: point; color: #ffe066; intensity: 0.9; distance: 2.5"></a-entity>
     </a-entity>
 
-    <a-entity id="toy-pyramid" air-toy="spawnX: 0.02; spawnY: -0.16; spawnZ: -0.28; grabRadius: 0.2; spin: 0.5">
-      <a-cone
+    <a-entity id="toy-box" air-toy="spawnX: -0.18; spawnY: -0.1; spawnZ: -0.32; grabRadius: 0.22; spin: 0.55; hueSpeed: 40">
+      <a-box
         data-toy-surface
-        radius-bottom="0.07"
-        height="0.11"
-        segments-radial="4"
-        material="color: #cc66ff; metalness: 0.4; emissive: #9922ff; emissiveIntensity: 0.8; transparent: true; opacity: 0.9"
-      ></a-cone>
-      <a-cone
-        data-toy-surface
-        radius-bottom="0.04"
-        height="0.065"
-        segments-radial="4"
-        position="0 0.025 0"
-        rotation="180 0 0"
-        material="color: #66ffff; wireframe: true; emissive: #22dddd; emissiveIntensity: 0.6"
-      ></a-cone>
-      <a-entity light="type: point; color: #cc66ff; intensity: 1; distance: 2.5"></a-entity>
-    </a-entity>
-
-    <a-entity id="toy-escher" air-toy="spawnX: -0.08; spawnY: -0.02; spawnZ: -0.4; grabRadius: 0.22; spin: 0.2">
-      <a-entity counter-spin="speed: 0.8">
-        <a-box data-toy-surface width="0.13" height="0.022" depth="0.022" position="0 0.04 0"
-          material="color: #ddeeff; emissive: #8899ff; emissiveIntensity: 0.9"></a-box>
-        <a-box data-toy-surface width="0.13" height="0.022" depth="0.022" position="0.055 -0.02 0" rotation="0 0 -60"
-          material="color: #eeddff; emissive: #bb88ff; emissiveIntensity: 0.9"></a-box>
-        <a-box data-toy-surface width="0.13" height="0.022" depth="0.022" position="-0.055 -0.02 0" rotation="0 0 60"
-          material="color: #ffeedd; emissive: #ffbb88; emissiveIntensity: 0.9"></a-box>
-        <a-torus radius="0.075" radius-tubular="0.007" rotation="90 30 0"
-          material="shader: flat; color: #ffffff; wireframe: true; opacity: 0.7; transparent: true"></a-torus>
-        <a-torus radius="0.05" radius-tubular="0.005" rotation="30 90 45"
-          material="shader: flat; color: #aaffee; wireframe: true; opacity: 0.65; transparent: true"
-          animation="property: rotation; to: 360 720 360; loop: true; dur: 9000; easing: linear"></a-torus>
-      </a-entity>
-      <a-entity light="type: point; color: #aabbff; intensity: 1.2; distance: 2.8"></a-entity>
+        width="0.09"
+        height="0.09"
+        depth="0.09"
+        material="color: #ff9ad8; emissive: #ff44aa; emissiveIntensity: 0.75"
+      ></a-box>
     </a-entity>
 
     <a-entity id="rig" position="0 0 0">
@@ -2396,9 +2342,15 @@
     }, { passive: false });
 
     const sceneEl = document.querySelector('a-scene');
+    sceneEl.addEventListener('loaded', function () {
+      try {
+        const r = sceneEl.renderer;
+        if (r && r.setPixelRatio) r.setPixelRatio(Math.min(1.25, window.devicePixelRatio || 1));
+      } catch (e) {}
+    });
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel22.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel23.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
