@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 23</title>
+  <title>Rainbow Hex Tunnel 24</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel23 — Quest-light: far fewer meshes; lite hands; simple toys.
+     * tunnel24 — a few more hand joints, twist-to-turn toys, colourful play.
      */
     const TunnelDrone = {
       ctx: null,
@@ -1903,7 +1903,7 @@
 
     /**
      * Floating toys — world offsets from #rig. Grabbed by lite-hands.
-     * Avoid setAttribute in the hot path (Quest freezes on text/scale thrash).
+     * Supports wrist twist while held + colourful play FX (pooled, not DOM thrash).
      */
     AFRAME.registerComponent('air-toy', {
       schema: {
@@ -1915,19 +1915,52 @@
         hueSpeed: { type: 'number', default: 45 }
       },
       init: function () {
+        const THREE = AFRAME.THREE;
         this.held = false;
         this.hover = false;
         this.hue = Math.random() * 360;
         this._hueAcc = 0;
+        this._fxAcc = 0;
         this.ox = this.data.spawnX;
         this.oy = this.data.spawnY;
         this.oz = this.data.spawnZ;
+        this._grabQ0 = new THREE.Quaternion();
+        this._toyQ0 = new THREE.Quaternion();
+        this._qDelta = new THREE.Quaternion();
+        this._qInv = new THREE.Quaternion();
+        this._pulse = 0;
+        this._sparks = [];
+        this._sparkI = 0;
+        this._initSparks();
         this.ensureSceneChild();
         this.pinToRig();
         this.el.sceneEl.addEventListener('enter-vr', () => {
           this.ensureSceneChild();
           this.pinToRig();
         });
+      },
+      _initSparks: function () {
+        const THREE = AFRAME.THREE;
+        const root = this.el.sceneEl.object3D;
+        if (!root) {
+          this.el.sceneEl.addEventListener('loaded', () => this._initSparks());
+          return;
+        }
+        if (this._sparks.length) return;
+        for (let i = 0; i < 10; i++) {
+          const m = new THREE.Mesh(
+            new THREE.SphereGeometry(0.012, 6, 6),
+            new THREE.MeshBasicMaterial({
+              color: 0xffffff,
+              transparent: true,
+              opacity: 0,
+              depthWrite: false
+            })
+          );
+          m.visible = false;
+          root.add(m);
+          this._sparks.push({ mesh: m, life: 0, max: 0, vy: 0 });
+        }
       },
       ensureSceneChild: function () {
         const scene = this.el.sceneEl;
@@ -1946,17 +1979,29 @@
         const s = on ? 1.18 : 1;
         this.el.object3D.scale.set(s, s, s);
       },
-      grabAt: function (worldPos) {
+      grabAt: function (worldPos, wristQuat) {
         this.held = true;
         this.hover = false;
         this.el.object3D.position.set(worldPos.x, worldPos.y, worldPos.z);
-        this.el.object3D.scale.set(1.22, 1.22, 1.22);
-        this.hue = (this.hue + 50) % 360;
+        this.el.object3D.scale.set(1.25, 1.25, 1.25);
+        this.hue = (this.hue + 70) % 360;
+        this._pulse = 0;
+        if (wristQuat) {
+          this._grabQ0.copy(wristQuat);
+          this._toyQ0.copy(this.el.object3D.quaternion);
+        }
         this.applyHue(true);
+        this._burst(worldPos, 6);
       },
-      followWorld: function (worldPos) {
+      followWorld: function (worldPos, wristQuat) {
         if (!this.held) return;
         this.el.object3D.position.set(worldPos.x, worldPos.y, worldPos.z);
+        if (wristQuat) {
+          // Apply wrist rotation delta so twisting your hand turns the toy
+          this._qInv.copy(this._grabQ0).invert();
+          this._qDelta.copy(wristQuat).multiply(this._qInv);
+          this.el.object3D.quaternion.copy(this._qDelta).multiply(this._toyQ0);
+        }
       },
       release: function () {
         if (!this.held) return;
@@ -1970,11 +2015,54 @@
           this.oy = p.y - r.y;
           this.oz = p.z - r.z;
         }
+        this._burst(this.el.object3D.position, 4);
         this.applyHue(false);
+      },
+      _burst: function (pos, n) {
+        this._initSparks();
+        for (let i = 0; i < n; i++) this._emitSpark(pos, true);
+      },
+      _emitSpark: function (pos, burst) {
+        if (!this._sparks.length) return;
+        const s = this._sparks[this._sparkI % this._sparks.length];
+        this._sparkI++;
+        const hex = this.hueToHex(this.hue + Math.random() * 80);
+        s.mesh.material.color.set(hex);
+        s.mesh.position.set(
+          pos.x + (Math.random() - 0.5) * 0.06,
+          pos.y + (Math.random() - 0.5) * 0.06,
+          pos.z + (Math.random() - 0.5) * 0.06
+        );
+        s.mesh.visible = true;
+        s.mesh.material.opacity = 0.95;
+        s.life = 0;
+        s.max = burst ? 0.35 + Math.random() * 0.25 : 0.28 + Math.random() * 0.2;
+        s.vy = 0.35 + Math.random() * 0.45;
+        s.vx = (Math.random() - 0.5) * 0.35;
+        s.vz = (Math.random() - 0.5) * 0.35;
+      },
+      _tickSparks: function (dt) {
+        for (let i = 0; i < this._sparks.length; i++) {
+          const s = this._sparks[i];
+          if (!s.mesh.visible) continue;
+          s.life += dt;
+          if (s.life >= s.max) {
+            s.mesh.visible = false;
+            s.mesh.material.opacity = 0;
+            continue;
+          }
+          const t = s.life / s.max;
+          s.mesh.position.x += (s.vx || 0) * dt;
+          s.mesh.position.y += s.vy * dt;
+          s.mesh.position.z += (s.vz || 0) * dt;
+          s.mesh.material.opacity = 0.95 * (1 - t);
+          const sc = 1 - t * 0.7;
+          s.mesh.scale.set(sc, sc, sc);
+        }
       },
       hueToHex: function (h) {
         h = ((h % 360) + 360) % 360;
-        const s = 0.92;
+        const s = 0.95;
         const l = 0.58;
         const a = s * Math.min(l, 1 - l);
         const f = (n) => {
@@ -1985,11 +2073,11 @@
         return '#' + to(f(0)) + to(f(8)) + to(f(4));
       },
       applyHue: function (held) {
-        const bright = held ? 1.2 : (this.hover ? 1.0 : 0.7);
+        const bright = held ? 1.35 : (this.hover ? 1.0 : 0.7);
         const targets = this.el.querySelectorAll('[data-toy-surface]');
         for (let i = 0; i < targets.length; i++) {
           const el = targets[i];
-          const hex = this.hueToHex(this.hue + i * 25);
+          const hex = this.hueToHex(this.hue + i * 40);
           const mesh = el.getObject3D('mesh');
           if (mesh && mesh.material) {
             if (mesh.material.color) mesh.material.color.set(hex);
@@ -2002,12 +2090,21 @@
       },
       tick: function (t, dtMs) {
         const dt = Math.min(0.05, (dtMs || 16) / 1000);
+        this._tickSparks(dt);
         if (this.held) {
-          this.hue = (this.hue + this.data.hueSpeed * dt * 2) % 360;
+          this.hue = (this.hue + this.data.hueSpeed * dt * 3.2) % 360;
+          this._pulse += dt * 8;
+          const pulse = 1.18 + 0.1 * Math.sin(this._pulse);
+          this.el.object3D.scale.set(pulse, pulse, pulse);
           this._hueAcc += dt;
-          if (this._hueAcc > 0.08) {
+          if (this._hueAcc > 0.06) {
             this._hueAcc = 0;
             this.applyHue(true);
+          }
+          this._fxAcc += dt;
+          if (this._fxAcc > 0.07) {
+            this._fxAcc = 0;
+            this._emitSpark(this.el.object3D.position, false);
           }
         } else {
           this.pinToRig();
@@ -2029,9 +2126,8 @@
 
     /**
      * Lite XR hands + grab.
-     * Does NOT use A-Frame hand-tracking-controls (mesh GLB load / dots spheres
-     * freeze Quest the moment hands appear). Reads WebXR joints directly and
-     * draws 3 tiny THREE spheres per hand — no A-Frame entities in the hot path.
+     * ~6 joints/hand (wrist + 5 tips) — enough to read as a hand, not 25.
+     * Wrist orientation drives toy twist while pinched.
      */
     AFRAME.registerComponent('lite-hands', {
       schema: {
@@ -2042,14 +2138,20 @@
       init: function () {
         const THREE = AFRAME.THREE;
         this.THREE = THREE;
-        this._thumb = new THREE.Vector3();
-        this._index = new THREE.Vector3();
-        this._wrist = new THREE.Vector3();
+        this._tmp = new THREE.Vector3();
         this._toyW = new THREE.Vector3();
         this._heldToy = null;
         this._heldSide = null;
         this._toys = null;
         this._rig = null;
+        this._jointNames = [
+          'wrist',
+          'thumb-tip',
+          'index-finger-tip',
+          'middle-finger-tip',
+          'ring-finger-tip',
+          'pinky-finger-tip'
+        ];
         this._hands = {
           left: this._makeHand(0x7dffd4),
           right: this._makeHand(0xff9ad8)
@@ -2059,25 +2161,27 @@
         const THREE = AFRAME.THREE;
         const group = new THREE.Group();
         group.visible = false;
-        const mk = (r) => {
-          const m = new THREE.Mesh(
-            new THREE.SphereGeometry(r, 8, 8),
-            new THREE.MeshBasicMaterial({
-              color: colorHex,
-              transparent: true,
-              opacity: 0.92
-            })
-          );
+        const mats = [
+          new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.95 }),
+          new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.9 }),
+          new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.9 }),
+          new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.85 }),
+          new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.85 }),
+          new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.8 })
+        ];
+        const radii = [0.02, 0.013, 0.013, 0.012, 0.011, 0.01];
+        const joints = [];
+        for (let i = 0; i < 6; i++) {
+          const m = new THREE.Mesh(new THREE.SphereGeometry(radii[i], 8, 8), mats[i]);
           group.add(m);
-          return m;
-        };
+          joints.push(m);
+        }
         return {
           group: group,
-          wrist: mk(0.018),
-          thumb: mk(0.012),
-          index: mk(0.012),
+          joints: joints,
           mid: new THREE.Vector3(),
           indexW: new THREE.Vector3(),
+          wristQ: new THREE.Quaternion(),
           attached: false
         };
       },
@@ -2088,43 +2192,68 @@
         root.add(hand.group);
         hand.attached = true;
       },
-      _poseJoint: function (frame, refSpace, xrHand, name, out) {
+      _poseJoint: function (frame, refSpace, xrHand, name, outPos, outQuat) {
         const joint = xrHand.get(name);
         if (!joint) return false;
         const pose = frame.getJointPose(joint, refSpace);
         if (!pose) return false;
-        out.set(
+        outPos.set(
           pose.transform.position.x,
           pose.transform.position.y,
           pose.transform.position.z
         );
         if (!this._rig) this._rig = document.getElementById('rig');
-        if (this._rig) this._rig.object3D.localToWorld(out);
+        if (this._rig) this._rig.object3D.localToWorld(outPos);
+        if (outQuat) {
+          const o = pose.transform.orientation;
+          outQuat.set(o.x, o.y, o.z, o.w);
+          // Orientation is in ref space; with translation-only #rig this matches world rotation
+        }
         return true;
       },
       _readSide: function (side, frame, refSpace, xrHand) {
+        const THREE = this.THREE;
         const hand = this._hands[side];
         this._ensureAttached(hand);
-        const okW = this._poseJoint(frame, refSpace, xrHand, 'wrist', this._wrist);
-        const okT = this._poseJoint(frame, refSpace, xrHand, 'thumb-tip', this._thumb);
-        const okI = this._poseJoint(frame, refSpace, xrHand, 'index-finger-tip', this._index);
-        if (!okT || !okI) {
-          if (!okW && !okT && !okI) hand.group.visible = false;
+        let seen = 0;
+        let okThumb = false;
+        let okIndex = false;
+        for (let i = 0; i < this._jointNames.length; i++) {
+          const name = this._jointNames[i];
+          const quat = name === 'wrist' ? hand.wristQ : null;
+          const ok = this._poseJoint(frame, refSpace, xrHand, name, this._tmp, quat);
+          if (!ok) {
+            hand.joints[i].visible = false;
+            continue;
+          }
+          hand.joints[i].visible = true;
+          hand.joints[i].position.copy(this._tmp);
+          seen++;
+          if (name === 'thumb-tip') {
+            okThumb = true;
+            hand.mid.copy(this._tmp); // temp store thumb
+          }
+          if (name === 'index-finger-tip') {
+            okIndex = true;
+            hand.indexW.copy(this._tmp);
+          }
+        }
+        if (!seen) {
+          hand.group.visible = false;
           return null;
         }
         hand.group.visible = true;
-        if (okW) hand.wrist.position.copy(this._wrist);
-        hand.thumb.position.copy(this._thumb);
-        hand.index.position.copy(this._index);
-        hand.mid.copy(this._thumb).add(this._index).multiplyScalar(0.5);
-        hand.indexW.copy(this._index);
-        const pinchDist = this._thumb.distanceTo(this._index);
+        if (!okThumb || !okIndex) return null;
+        // mid was thumb; average with index
+        hand.mid.add(hand.indexW).multiplyScalar(0.5);
+        const pinchDist = hand.joints[1].position.distanceTo(hand.joints[2].position);
         return {
           side: side,
           pinched: pinchDist <= this.data.pinchMax,
           open: pinchDist >= this.data.releaseMin,
           mid: hand.mid,
-          index: hand.indexW
+          index: hand.indexW,
+          wristQ: hand.wristQ
         };
       },
       tock: function () {
@@ -2161,7 +2290,7 @@
             this._heldToy = null;
             this._heldSide = null;
           } else {
-            this._heldToy.followWorld(info.mid);
+            this._heldToy.followWorld(info.mid, info.wristQ);
           }
           return;
         }
@@ -2194,7 +2323,7 @@
         });
 
         if (best && bestInfo) {
-          best.grabAt(bestInfo.mid);
+          best.grabAt(bestInfo.mid, bestInfo.wristQ);
           this._heldToy = best;
           this._heldSide = bestInfo.side;
         }
@@ -2219,11 +2348,11 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel23 · lighter scene · pinch the orb or cube</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel24 · twist toys · colourful sparks</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
-  <p id="handHint" style="display:none;position:fixed;bottom:3.2rem;left:50%;transform:translateX(-50%);z-index:10002;color:#c8c4b8;font:0.6rem Georgia,serif;letter-spacing:0.06em;text-align:center;opacity:0.8">Put controllers down · pinch near a toy to grab</p>
+  <p id="handHint" style="display:none;position:fixed;bottom:3.2rem;left:50%;transform:translateX(-50%);z-index:10002;color:#c8c4b8;font:0.6rem Georgia,serif;letter-spacing:0.06em;text-align:center;opacity:0.8">Put controllers down · pinch, twist, play</p>
 
   <a-scene
     background="color: #000008"
@@ -2250,7 +2379,7 @@
     <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 1.4; distance: 6" position="0.25 0.25 -1.8"></a-entity>
 
     <!-- Simple toys only (Quest-friendly) -->
-    <a-entity id="toy-orb" air-toy="spawnX: 0.18; spawnY: -0.12; spawnZ: -0.3; grabRadius: 0.22; hueSpeed: 50; spin: 0.4">
+    <a-entity id="toy-orb" air-toy="spawnX: 0.2; spawnY: -0.12; spawnZ: -0.3; grabRadius: 0.22; hueSpeed: 55; spin: 0.4">
       <a-sphere
         data-toy-surface
         radius="0.055"
@@ -2258,7 +2387,7 @@
       ></a-sphere>
     </a-entity>
 
-    <a-entity id="toy-box" air-toy="spawnX: -0.18; spawnY: -0.1; spawnZ: -0.32; grabRadius: 0.22; spin: 0.55; hueSpeed: 40">
+    <a-entity id="toy-box" air-toy="spawnX: -0.2; spawnY: -0.1; spawnZ: -0.32; grabRadius: 0.22; spin: 0.55; hueSpeed: 45">
       <a-box
         data-toy-surface
         width="0.09"
@@ -2266,6 +2395,16 @@
         depth="0.09"
         material="color: #ff9ad8; emissive: #ff44aa; emissiveIntensity: 0.75"
       ></a-box>
+    </a-entity>
+
+    <a-entity id="toy-gem" air-toy="spawnX: 0.0; spawnY: -0.14; spawnZ: -0.36; grabRadius: 0.22; spin: 0.7; hueSpeed: 70">
+      <a-cone
+        data-toy-surface
+        radius-bottom="0.055"
+        height="0.1"
+        segments-radial="5"
+        material="color: #ffe066; emissive: #ffaa00; emissiveIntensity: 0.85"
+      ></a-cone>
     </a-entity>
 
     <a-entity id="rig" position="0 0 0">
@@ -2350,7 +2489,7 @@
     });
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel23.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel24.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
