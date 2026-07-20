@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 27</title>
+  <title>Rainbow Hex Tunnel 28</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel27 — detailed low-poly hands + half-count yellow spin squares.
+     * tunnel28 — yellow corner square trails visible (face inward, on hex vertices).
      */
     const TunnelDrone = {
       ctx: null,
@@ -1621,7 +1621,7 @@
         this.SEG_COUNT = 36;
         this.WALL_THICK = 0.1;
         this.WHITE_EVERY = 18;
-        this.PLANE_SIZE = 0.3;
+        this.PLANE_SIZE = 0.36;
         this.PLANE_GAP = 1.1;
         this.PLANES_PER_LINE = 18;
         this.camZ = 0;
@@ -1712,7 +1712,8 @@
       },
 
       buildCornerPlanes() {
-        const cornerR = (this.RADIUS / Math.cos(Math.PI / this.SIDES)) * 0.8;
+        // Hex vertex grooves — 6 long yellow lines, each square faces the bore
+        const cornerR = (this.RADIUS / Math.cos(Math.PI / this.SIDES)) * 0.92;
 
         for (let c = 0; c < this.SIDES; c++) {
           const angle = c * (Math.PI * 2 / this.SIDES);
@@ -1721,23 +1722,32 @@
           const planes = [];
 
           for (let i = 0; i < this.PLANES_PER_LINE; i++) {
+            const z = -i * this.PLANE_GAP;
+            const anchor = document.createElement('a-entity');
+            anchor.setAttribute('position', `${cx} ${cy} ${z}`);
+
             const plane = document.createElement('a-plane');
             plane.setAttribute('width', this.PLANE_SIZE);
             plane.setAttribute('height', this.PLANE_SIZE);
-            plane.setAttribute('position', `${cx} ${cy} ${-i * this.PLANE_GAP}`);
+            // Stand vertical; face toward tunnel centre (parent lookAt runs after insert)
+            plane.setAttribute('rotation', '90 0 0');
             plane.setAttribute(
               'material',
-              'color: #ffff00; emissive: #ffe600; emissiveIntensity: 0.85; side: double; metalness: 0.35; roughness: 0.3'
+              'shader: flat; color: #ffff00; emissive: #ffe600; emissiveIntensity: 1.25; side: double; transparent: false'
             );
-            const dur = 16000;
+            const dur = 14000;
             plane.setAttribute(
               'animation',
-              `property: rotation; to: 0 0 360; loop: true; dur: ${dur}; delay: ${(i / this.PLANES_PER_LINE) * dur}; easing: linear`
+              `property: rotation; from: 90 0 0; to: 90 0 360; loop: true; dur: ${dur}; delay: ${(i / this.PLANES_PER_LINE) * dur}; easing: linear`
             );
-            this.el.appendChild(plane);
-            planes.push(plane);
+            anchor.appendChild(plane);
+            this.el.appendChild(anchor);
+            // Aim anchor -Z at bore centre line (same Z slice)
+            anchor.object3D.position.set(cx, cy, z);
+            anchor.object3D.lookAt(0, 0, z);
+            planes.push(anchor);
           }
-          this.cornerPlanes.push({ planes });
+          this.cornerPlanes.push({ planes, cx, cy });
         }
       },
 
@@ -2715,7 +2725,7 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel27 · detailed hands · yellow spin squares</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel28 · yellow corner trails · hands &amp; toys</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
@@ -2856,7 +2866,7 @@
     });
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel27.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel28.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
