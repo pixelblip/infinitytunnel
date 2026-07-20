@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 28</title>
+  <title>Rainbow Hex Tunnel 29</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel28 — yellow corner square trails visible (face inward, on hex vertices).
+     * tunnel29 — finger smoke drawing (vaporising rings & strokes), no corner trails.
      */
     const TunnelDrone = {
       ctx: null,
@@ -1621,19 +1621,14 @@
         this.SEG_COUNT = 36;
         this.WALL_THICK = 0.1;
         this.WHITE_EVERY = 18;
-        this.PLANE_SIZE = 0.36;
-        this.PLANE_GAP = 1.1;
-        this.PLANES_PER_LINE = 18;
         this.camZ = 0;
         this.segments = [];
-        this.cornerPlanes = [];
         this._lastColors = new Map();
         this.rig = document.querySelector('#rig');
         this.moodLight = document.querySelector('#mood-light');
         this.cubeLight = document.querySelector('#cube-light');
 
         this.buildTunnel();
-        this.buildCornerPlanes();
         this.buildWallLights();
         this._nextFxAt = 0;
       },
@@ -1711,46 +1706,6 @@
         this.segments.forEach((seg) => this.paintSegment(seg));
       },
 
-      buildCornerPlanes() {
-        // Hex vertex grooves — 6 long yellow lines, each square faces the bore
-        const cornerR = (this.RADIUS / Math.cos(Math.PI / this.SIDES)) * 0.92;
-
-        for (let c = 0; c < this.SIDES; c++) {
-          const angle = c * (Math.PI * 2 / this.SIDES);
-          const cx = Math.sin(angle) * cornerR;
-          const cy = Math.cos(angle) * cornerR;
-          const planes = [];
-
-          for (let i = 0; i < this.PLANES_PER_LINE; i++) {
-            const z = -i * this.PLANE_GAP;
-            const anchor = document.createElement('a-entity');
-            anchor.setAttribute('position', `${cx} ${cy} ${z}`);
-
-            const plane = document.createElement('a-plane');
-            plane.setAttribute('width', this.PLANE_SIZE);
-            plane.setAttribute('height', this.PLANE_SIZE);
-            // Stand vertical; face toward tunnel centre (parent lookAt runs after insert)
-            plane.setAttribute('rotation', '90 0 0');
-            plane.setAttribute(
-              'material',
-              'shader: flat; color: #ffff00; emissive: #ffe600; emissiveIntensity: 1.25; side: double; transparent: false'
-            );
-            const dur = 14000;
-            plane.setAttribute(
-              'animation',
-              `property: rotation; from: 90 0 0; to: 90 0 360; loop: true; dur: ${dur}; delay: ${(i / this.PLANES_PER_LINE) * dur}; easing: linear`
-            );
-            anchor.appendChild(plane);
-            this.el.appendChild(anchor);
-            // Aim anchor -Z at bore centre line (same Z slice)
-            anchor.object3D.position.set(cx, cy, z);
-            anchor.object3D.lookAt(0, 0, z);
-            planes.push(anchor);
-          }
-          this.cornerPlanes.push({ planes, cx, cy });
-        }
-      },
-
       recycle() {
         const tunnelLen = this.SEG_COUNT * this.SEG_LEN;
         const nearPad = this.SEG_LEN * 2;
@@ -1760,15 +1715,6 @@
             seg.object3D.position.z -= tunnelLen;
             this._lastColors.delete(seg);
           }
-        });
-
-        const planeDepth = this.PLANES_PER_LINE * this.PLANE_GAP;
-        this.cornerPlanes.forEach(({ planes }) => {
-          planes.forEach((plane) => {
-            while (plane.object3D.position.z > this.camZ + this.PLANE_GAP * 2) {
-              plane.object3D.position.z -= planeDepth;
-            }
-          });
         });
       },
 
@@ -2139,15 +2085,14 @@
     });
 
     /**
-     * Lite XR hands + grab + trails + smoke rings + LOW-POLY stick hands.
-     * ~1 palm + 5 finger boxes per hand (not A-Frame GLB / 25-dot models).
+     * Lite XR hands + grab + smoke drawing (strokes & rings that vaporise).
      */
     AFRAME.registerComponent('lite-hands', {
       schema: {
         pinchMax: { type: 'number', default: 0.05 },
         releaseMin: { type: 'number', default: 0.08 },
         grabRadius: { type: 'number', default: 0.22 },
-        trailSpeed: { type: 'number', default: 0.35 },
+        drawSpeed: { type: 'number', default: 0.12 },
         ringPinchMax: { type: 'number', default: 0.045 }
       },
       init: function () {
@@ -2158,13 +2103,13 @@
         this._fwd = new THREE.Vector3();
         this._toyW = new THREE.Vector3();
         this._yAxis = new THREE.Vector3(0, 1, 0);
+        this._ringQ = new THREE.Quaternion();
         this._heldToy = null;
         this._heldSide = null;
         this._toys = null;
         this._rig = null;
         this._fxRoot = null;
-        this._hue = Math.random() * 360;
-        // Full finger chains for low-poly segments (pose only — no A-Frame hand GLB)
+        this._drawHue = 200 + Math.random() * 40;
         this._jointNames = [
           'wrist',
           'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
@@ -2210,12 +2155,13 @@
           left: this._makeHand(0x7dffd4),
           right: this._makeHand(0xff9ad8)
         };
-        this._trails = [];
-        this._trailI = 0;
+        this._smoke = [];
+        this._smokeI = 0;
         this._rings = [];
         this._ringI = 0;
         this._wasPinched = { left: false, right: false };
         this._wasRingPinch = { left: false, right: false };
+        this._drawHue = 200 + Math.random() * 40;
         this._initFx();
       },
       _initFx: function () {
@@ -2229,11 +2175,12 @@
         this._fxRoot = new THREE.Group();
         root.add(this._fxRoot);
 
-        for (let i = 0; i < 56; i++) {
+        // Smoke puff pool — soft spheres that rise and fade
+        for (let i = 0; i < 96; i++) {
           const m = new THREE.Mesh(
-            new THREE.SphereGeometry(0.014, 6, 6),
+            new THREE.SphereGeometry(0.016, 5, 5),
             new THREE.MeshBasicMaterial({
-              color: 0xff00ff,
+              color: 0xddeeff,
               transparent: true,
               opacity: 0,
               depthWrite: false
@@ -2241,14 +2188,15 @@
           );
           m.visible = false;
           this._fxRoot.add(m);
-          this._trails.push({ mesh: m, life: 0, max: 0, vx: 0, vy: 0, vz: 0 });
+          this._smoke.push({ mesh: m, life: 0, max: 0, vx: 0, vy: 0, vz: 0, grow: 1.6 });
         }
 
-        for (let i = 0; i < 5; i++) {
+        // Smoke rings — torus shapes that expand and vaporise
+        for (let i = 0; i < 10; i++) {
           const m = new THREE.Mesh(
-            new THREE.TorusGeometry(0.08, 0.012, 8, 24),
+            new THREE.TorusGeometry(0.07, 0.014, 6, 20),
             new THREE.MeshBasicMaterial({
-              color: 0xaaddff,
+              color: 0xc8e8ff,
               transparent: true,
               opacity: 0,
               depthWrite: false,
@@ -2257,7 +2205,7 @@
           );
           m.visible = false;
           this._fxRoot.add(m);
-          this._rings.push({ mesh: m, life: 0, max: 0, vx: 0, vy: 0, vz: 0, grow: 1 });
+          this._rings.push({ mesh: m, life: 0, max: 0, vx: 0, vy: 0, vz: 0, grow: 2.2 });
         }
       },
       _makeHand: function (colorHex) {
@@ -2342,7 +2290,10 @@
           wristW: new THREE.Vector3(),
           wristQ: new THREE.Quaternion(),
           prevIndex: new THREE.Vector3(),
+          prevDraw: new THREE.Vector3(),
+          drawDir: new THREE.Vector3(),
           hasPrev: false,
+          hasDraw: false,
           ok: {},
           attached: false
         };
@@ -2404,63 +2355,113 @@
         mesh.visible = false;
         return false;
       },
-      _emitTrail: function (pos, vel, smoke) {
-        if (!this._trails.length) return;
-        const t = this._trails[this._trailI % this._trails.length];
-        this._trailI++;
-        const speed = vel.length();
-        const hex = smoke
-          ? this._hueHex(220 + Math.random() * 40)
-          : this._hueHex(this._hue + Math.random() * 90);
-        t.mesh.material.color.setHex(hex);
-        t.mesh.position.copy(pos);
-        t.mesh.visible = true;
-        t.mesh.material.opacity = smoke ? 0.55 : 0.9;
-        const sc = smoke ? 0.7 + Math.random() * 0.8 : 0.6 + Math.min(1.4, speed * 1.2);
-        t.mesh.scale.set(sc, sc, sc);
-        t.life = 0;
-        t.max = smoke ? 0.55 + Math.random() * 0.35 : 0.4 + Math.random() * 0.35;
-        t.vx = -vel.x * 0.15 + (Math.random() - 0.5) * 0.08;
-        t.vy = 0.05 + Math.random() * 0.12 + (smoke ? 0.08 : 0);
-        t.vz = -vel.z * 0.15 + (Math.random() - 0.5) * 0.08;
+      _smokeHex: function (h, pale) {
+        h = ((h % 360) + 360) % 360;
+        const s = pale ? 0.35 : 0.55;
+        const l = pale ? 0.82 : 0.72;
+        const a = s * Math.min(l, 1 - l);
+        const f = (n) => {
+          const k = (n + h / 30) % 12;
+          return l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+        };
+        const c = (v) => Math.round(v * 255);
+        return (c(f(0)) << 16) + (c(f(8)) << 8) + c(f(4));
       },
-      _spawnRing: function (pos, wristQ, fat) {
+      _emitPuff: function (pos, vel, fat) {
+        if (!this._smoke.length) return;
+        const p = this._smoke[this._smokeI % this._smoke.length];
+        this._smokeI++;
+        const speed = vel ? vel.length() : 0;
+        p.mesh.material.color.setHex(
+          this._smokeHex(this._drawHue + Math.random() * 50, !fat)
+        );
+        p.mesh.position.copy(pos);
+        p.mesh.position.x += (Math.random() - 0.5) * 0.012;
+        p.mesh.position.y += (Math.random() - 0.5) * 0.012;
+        p.mesh.position.z += (Math.random() - 0.5) * 0.012;
+        p.mesh.visible = true;
+        const sc = fat ? 0.55 + Math.random() * 0.45 : 0.35 + Math.random() * 0.35;
+        p.mesh.scale.set(sc, sc, sc);
+        p.life = 0;
+        p.max = fat ? 2.4 + Math.random() * 1.2 : 1.6 + Math.random() * 0.9;
+        p.grow = fat ? 2.8 : 2.0;
+        p.vx = (vel ? -vel.x * 0.08 : 0) + (Math.random() - 0.5) * 0.06;
+        p.vy = 0.06 + Math.random() * 0.1 + (fat ? 0.06 : 0.03);
+        p.vz = (vel ? -vel.z * 0.08 : 0) + (Math.random() - 0.5) * 0.06;
+        p.mesh.material.opacity = fat ? 0.72 : 0.58;
+      },
+      _strokeSmoke: function (from, to, vel, fat) {
+        const dist = from.distanceTo(to);
+        const step = fat ? 0.022 : 0.038;
+        const steps = Math.min(fat ? 10 : 5, Math.max(1, Math.ceil(dist / step)));
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          this._tmp.copy(from).lerp(to, t);
+          this._emitPuff(this._tmp, vel, fat);
+        }
+      },
+      _spawnSmokeRing: function (pos, normalQ, fat, drift) {
         if (!this._rings.length) return;
         const r = this._rings[this._ringI % this._rings.length];
         this._ringI++;
         r.mesh.visible = true;
         r.mesh.position.copy(pos);
-        r.mesh.scale.set(fat ? 1.3 : 1, fat ? 1.3 : 1, fat ? 1.3 : 1);
-        r.mesh.material.opacity = fat ? 0.75 : 0.6;
-        r.mesh.material.color.setHex(this._hueHex(180 + Math.random() * 80));
-        r.mesh.quaternion.copy(wristQ);
-        this._fwd.set(0, 0, -1).applyQuaternion(wristQ).normalize();
-        const speed = fat ? 0.55 : 0.4;
-        r.vx = this._fwd.x * speed;
-        r.vy = this._fwd.y * speed * 0.4 + 0.05;
-        r.vz = this._fwd.z * speed;
+        const base = fat ? 1.15 : 0.85;
+        r.mesh.scale.set(base, base, base);
+        r.mesh.material.opacity = fat ? 0.78 : 0.62;
+        r.mesh.material.color.setHex(this._smokeHex(this._drawHue + 30 + Math.random() * 40, false));
+        r.mesh.quaternion.copy(normalQ);
+        if (drift) {
+          this._fwd.set(0, 0, -1).applyQuaternion(normalQ).normalize();
+          const sp = fat ? 0.35 : 0.22;
+          r.vx = this._fwd.x * sp;
+          r.vy = this._fwd.y * sp * 0.35 + 0.04;
+          r.vz = this._fwd.z * sp;
+        } else {
+          r.vx = (Math.random() - 0.5) * 0.04;
+          r.vy = 0.05 + Math.random() * 0.06;
+          r.vz = (Math.random() - 0.5) * 0.04;
+        }
         r.life = 0;
-        r.max = fat ? 1.6 : 1.2;
-        r.grow = fat ? 2.4 : 1.8;
+        r.max = fat ? 2.8 : 2.0;
+        r.grow = fat ? 3.2 : 2.4;
+      },
+      _ringOrient: function (drawDir, wristQ, outQ) {
+        if (drawDir.lengthSq() > 2e-5) {
+          this._ringQuatFromDir(drawDir, outQ);
+        } else {
+          outQ.copy(wristQ);
+        }
+      },
+      _ringQuatFromDir: function (dir, outQ) {
+        if (dir.lengthSq() < 1e-6) {
+          outQ.identity();
+          return;
+        }
+        this._tmp.copy(dir).normalize();
+        this._fwd.set(0, 0, 1);
+        outQ.setFromUnitVectors(this._fwd, this._tmp);
       },
       _tickFx: function (dt) {
-        this._hue = (this._hue + dt * 50) % 360;
-        for (let i = 0; i < this._trails.length; i++) {
-          const t = this._trails[i];
-          if (!t.mesh.visible) continue;
-          t.life += dt;
-          if (t.life >= t.max) {
-            t.mesh.visible = false;
-            t.mesh.material.opacity = 0;
+        this._drawHue = (this._drawHue + dt * 18) % 360;
+        for (let i = 0; i < this._smoke.length; i++) {
+          const p = this._smoke[i];
+          if (!p.mesh.visible) continue;
+          p.life += dt;
+          if (p.life >= p.max) {
+            p.mesh.visible = false;
+            p.mesh.material.opacity = 0;
             continue;
           }
-          const k = t.life / t.max;
-          t.mesh.position.x += t.vx * dt;
-          t.mesh.position.y += t.vy * dt;
-          t.mesh.position.z += t.vz * dt;
-          t.mesh.material.opacity = (1 - k) * 0.9;
-          const sc = t.mesh.scale.x * (1 + dt * 0.8);
-          t.mesh.scale.setScalar(Math.min(sc, 2.2));
+          const k = p.life / p.max;
+          const fade = (1 - k) * (1 - k);
+          p.mesh.position.x += p.vx * dt;
+          p.mesh.position.y += p.vy * dt;
+          p.mesh.position.z += p.vz * dt;
+          p.vy += dt * 0.04;
+          p.mesh.material.opacity = fade * 0.75;
+          const sc = p.mesh.scale.x * (1 + dt * p.grow * 0.35);
+          p.mesh.scale.setScalar(Math.min(sc, 3.5));
         }
         for (let i = 0; i < this._rings.length; i++) {
           const r = this._rings[i];
@@ -2473,12 +2474,12 @@
           }
           const k = r.life / r.max;
           r.mesh.position.x += r.vx * dt;
-          r.mesh.position.y += r.vy * dt;
+          r.mesh.position.y += r.vy * dt + dt * 0.025;
           r.mesh.position.z += r.vz * dt;
           const g = 1 + k * r.grow;
-          r.mesh.scale.set(g, g, g);
-          r.mesh.material.opacity = 0.65 * (1 - k) * (1 - k);
-          r.mesh.rotation.z += dt * 1.2;
+          r.mesh.scale.set(g, g, g * 0.92);
+          r.mesh.material.opacity = 0.7 * (1 - k) * (1 - k * 0.5);
+          r.mesh.rotation.z += dt * 0.6;
         }
       },
       _readSide: function (side, frame, refSpace, xrHand) {
@@ -2557,35 +2558,38 @@
           hand: hand
         };
       },
-      _updateTrails: function (info, dt) {
+      _updateSmokeDraw: function (info, dt, nearToy) {
         if (!info) return;
         const hand = info.hand;
-        if (!hand.hasPrev) {
-          hand.prevIndex.copy(info.index);
+        const tip = info.index;
+        if (!hand.hasDraw) {
+          hand.prevDraw.copy(tip);
+          hand.hasDraw = true;
           hand.hasPrev = true;
+          hand.prevIndex.copy(tip);
           return;
         }
-        this._tmp2.copy(info.index).sub(hand.prevIndex);
+        this._tmp2.copy(tip).sub(hand.prevIndex);
         const speed = dt > 0 ? this._tmp2.length() / dt : 0;
-        const velX = this._tmp2.x;
-        const velY = this._tmp2.y;
-        const velZ = this._tmp2.z;
-        hand.prevIndex.copy(info.index);
+        hand.drawDir.copy(this._tmp2);
+        hand.prevIndex.copy(tip);
+        const vel = this._tmp2;
 
-        if (speed > this.data.trailSpeed) {
-          const n = Math.min(3, 1 + Math.floor(speed * 2));
-          for (let i = 0; i < n; i++) {
-            this._tmp.copy(info.index);
-            this._tmp.x += (Math.random() - 0.5) * 0.02;
-            this._tmp.y += (Math.random() - 0.5) * 0.02;
-            this._tmp.z += (Math.random() - 0.5) * 0.02;
-            this._tmp2.set(velX, velY, velZ);
-            this._emitTrail(this._tmp, this._tmp2, false);
-          }
+        // Pinch = paint dense smoke strokes (unless grabbing a toy)
+        if (info.pinched && !nearToy) {
+          this._strokeSmoke(hand.prevDraw, tip, vel, true);
+          hand.prevDraw.copy(tip);
+          return;
         }
-        if (speed > this.data.trailSpeed * 0.65 && info.middle) {
-          this._tmp2.set(velX, velY, velZ);
-          this._emitTrail(info.middle, this._tmp2, true);
+
+        hand.prevDraw.copy(tip);
+
+        // Waving index / middle leaves lighter smoke wisps
+        if (speed > this.data.drawSpeed) {
+          this._strokeSmoke(tip, tip, vel, false);
+          if (info.middle && speed > this.data.drawSpeed * 1.2) {
+            this._emitPuff(info.middle, vel, false);
+          }
         }
       },
       tock: function (t, dtMs) {
@@ -2619,14 +2623,33 @@
         if (!infos.left) {
           this._hands.left.group.visible = false;
           this._hands.left.hasPrev = false;
+          this._hands.left.hasDraw = false;
         }
         if (!infos.right) {
           this._hands.right.group.visible = false;
           this._hands.right.hasPrev = false;
+          this._hands.right.hasDraw = false;
         }
 
-        this._updateTrails(infos.left, dt);
-        this._updateTrails(infos.right, dt);
+        const nearToyFor = { left: false, right: false };
+        if (this._toys) {
+          ['left', 'right'].forEach((side) => {
+            const info = infos[side];
+            if (!info) return;
+            for (let i = 0; i < toys.length; i++) {
+              const toy = toys[i].components['air-toy'];
+              if (!toy) continue;
+              toy.el.object3D.getWorldPosition(this._toyW);
+              if (this._toyW.distanceTo(info.index) < (toy.data.grabRadius || 0.22) * 1.15) {
+                nearToyFor[side] = true;
+                break;
+              }
+            }
+          });
+        }
+
+        this._updateSmokeDraw(infos.left, dt, nearToyFor.left);
+        this._updateSmokeDraw(infos.right, dt, nearToyFor.right);
 
         ['left', 'right'].forEach((side) => {
           const info = infos[side];
@@ -2638,23 +2661,15 @@
             return;
           }
           if (wasRing && !info.ringPinch) {
-            this._spawnRing(info.mid, info.wristQ, true);
+            this._ringOrient(info.hand.drawDir, info.wristQ, this._ringQ);
+            this._spawnSmokeRing(info.index, this._ringQ, true, true);
           }
           this._wasRingPinch[side] = info.ringPinch;
 
           const holdingHere = this._heldToy && this._heldSide === side;
-          if (was && info.open && !holdingHere) {
-            let nearToy = false;
-            for (let i = 0; i < toys.length; i++) {
-              const toy = toys[i].components['air-toy'];
-              if (!toy) continue;
-              toy.el.object3D.getWorldPosition(this._toyW);
-              if (this._toyW.distanceTo(info.index) < (toy.data.grabRadius || 0.22) * 1.3) {
-                nearToy = true;
-                break;
-              }
-            }
-            if (!nearToy) this._spawnRing(info.mid, info.wristQ, false);
+          if (was && info.open && !holdingHere && !nearToyFor[side]) {
+            this._ringOrient(info.hand.drawDir, info.wristQ, this._ringQ);
+            this._spawnSmokeRing(info.index, this._ringQ, false, true);
           }
           this._wasPinched[side] = info.pinched;
         });
@@ -2725,11 +2740,11 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel28 · yellow corner trails · hands &amp; toys</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel29 · draw with smoke · hands &amp; toys</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
-  <p id="handHint" style="display:none;position:fixed;bottom:3.2rem;left:50%;transform:translateX(-50%);z-index:10002;color:#c8c4b8;font:0.6rem Georgia,serif;letter-spacing:0.06em;text-align:center;opacity:0.8">Wave fingers for trails · air-pinch for smoke rings</p>
+  <p id="handHint" style="display:none;position:fixed;bottom:3.2rem;left:50%;transform:translateX(-50%);z-index:10002;color:#c8c4b8;font:0.6rem Georgia,serif;letter-spacing:0.06em;text-align:center;opacity:0.8">Pinch &amp; move to draw smoke · release for rings · O-gesture for big rings</p>
 
   <a-scene
     background="color: #000008"
@@ -2866,7 +2881,7 @@
     });
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel28.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel29.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
