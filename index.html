@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 15</title>
+  <title>Rainbow Hex Tunnel 16</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel15 — bright hand dots + pinch glow so hands are always visible.
+     * tunnel16 — centered tunnel view (local ref space) + world-space hand glow.
      */
     const TunnelDrone = {
       ctx: null,
@@ -2121,31 +2121,34 @@
       }
     });
 
-    /** Pinch cache + bright visible fingertips (mesh often fails on Quest) */
+    /** Pinch cache + scene-root glow orbs at world joint positions (Quest-safe) */
     AFRAME.registerComponent('pinch-tracker', {
       schema: {
-        color: { type: 'color', default: '#7dffd4' }
+        color: { type: 'color', default: '#7dffd4' },
+        hand: { type: 'string', default: 'left' }
       },
       init: function () {
         const THREE = AFRAME.THREE;
         this.pinchPos = null;
-        this._tips = [];
-        this._wrist = null;
-        // Bright wrist orb
-        const wrist = document.createElement('a-sphere');
-        wrist.setAttribute('radius', '0.028');
-        wrist.setAttribute('material', 'shader: flat; color: ' + this.data.color + '; opacity: 0.95; transparent: true');
-        wrist.setAttribute('visible', 'false');
-        this.el.appendChild(wrist);
-        this._wrist = wrist;
-        // Fingertip orbs
+        this._world = new THREE.Vector3();
+        this._markers = [];
+        const scene = this.el.sceneEl;
+        const makeOrb = (radius) => {
+          const orb = document.createElement('a-sphere');
+          orb.setAttribute('radius', radius);
+          orb.setAttribute(
+            'material',
+            'shader: flat; color: ' + this.data.color +
+            '; opacity: 0.98; transparent: true; depthTest: false'
+          );
+          orb.setAttribute('visible', 'false');
+          scene.appendChild(orb);
+          this._markers.push(orb);
+          return orb;
+        };
+        makeOrb('0.038');
         for (let i = 0; i < 5; i++) {
-          const tip = document.createElement('a-sphere');
-          tip.setAttribute('radius', i === 0 ? '0.016' : '0.012');
-          tip.setAttribute('material', 'shader: flat; color: ' + this.data.color + '; opacity: 0.9; transparent: true');
-          tip.setAttribute('visible', 'false');
-          this.el.appendChild(tip);
-          this._tips.push(tip);
+          makeOrb(i === 0 ? '0.024' : '0.02');
         }
         this.el.addEventListener('pinchstarted', (e) => {
           if (e.detail && e.detail.position) {
@@ -2164,41 +2167,81 @@
           this.pinchPos = null;
         });
       },
+      _place: function (idx, v) {
+        const m = this._markers[idx];
+        if (!m) return;
+        m.setAttribute('visible', 'true');
+        m.object3D.position.set(v.x, v.y, v.z);
+      },
+      _fromBones: function (ht) {
+        const bones = ht && ht.bones;
+        if (!bones || !bones.length) return false;
+        const tipIdx = [4, 9, 14, 19, 24];
+        if (bones[0]) {
+          bones[0].getWorldPosition(this._world);
+          this._place(0, this._world);
+        }
+        for (let i = 0; i < 5; i++) {
+          const b = bones[tipIdx[i]] || bones[Math.min(bones.length - 1, 4 + i * 4)];
+          if (b) {
+            b.getWorldPosition(this._world);
+            this._place(i + 1, this._world);
+          }
+        }
+        return true;
+      },
+      _fromXr: function () {
+        const sceneEl = this.el.sceneEl;
+        const renderer = sceneEl && sceneEl.renderer;
+        if (!renderer || !renderer.xr) return false;
+        const frame = sceneEl.frame;
+        const session = renderer.xr.getSession();
+        const refSpace = renderer.xr.getReferenceSpace();
+        if (!frame || !session || !refSpace) return false;
+        const side = this.data.hand;
+        const joints = [
+          'wrist', 'thumb-tip', 'index-finger-tip',
+          'middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip'
+        ];
+        for (let s = 0; s < session.inputSources.length; s++) {
+          const src = session.inputSources[s];
+          if (!src.hand || src.handedness !== side) continue;
+          let any = false;
+          for (let i = 0; i < joints.length; i++) {
+            const joint = src.hand.get(joints[i]);
+            if (!joint) continue;
+            const pose = frame.getJointPose(joint, refSpace);
+            if (!pose) continue;
+            const p = pose.transform.position;
+            this._world.set(p.x, p.y, p.z);
+            this._place(i, this._world);
+            any = true;
+          }
+          return any;
+        }
+        return false;
+      },
       tick: function () {
         const ht = this.el.components['hand-tracking-controls'];
-        // Keep entity visible whenever A-Frame has hand data
         if (ht && ht.mesh) {
           this.el.object3D.visible = true;
-          if (ht.mesh.visible === false) ht.mesh.visible = true;
+          ht.mesh.visible = true;
         }
-        // Bone indices: wrist ~0; fingertips vary — use A-Frame bones if present
-        const bones = ht && ht.bones;
-        if (bones && bones.length) {
-          // Wrist
-          if (bones[0] && this._wrist) {
-            this._wrist.setAttribute('visible', 'true');
-            this._wrist.object3D.position.copy(bones[0].position);
-          }
-          // Prefer fingertip bones if available (A-Frame oculus hand: tips often at ends)
-          const tipIdx = [4, 9, 14, 19, 24];
-          for (let i = 0; i < this._tips.length; i++) {
-            const b = bones[tipIdx[i]] || bones[Math.min(bones.length - 1, 4 + i * 4)];
-            if (b) {
-              this._tips[i].setAttribute('visible', 'true');
-              this._tips[i].object3D.position.copy(b.position);
-            }
-          }
-        } else if (this.pinchPos && this._wrist) {
-          // At least show pinch point
-          this._wrist.setAttribute('visible', 'true');
-          this._wrist.object3D.position.copy(this.pinchPos);
+        let ok = ht && this._fromBones(ht);
+        if (!ok) ok = this._fromXr();
+        if (!ok && this.pinchPos) this._place(0, this.pinchPos);
+      },
+      remove: function () {
+        for (let i = 0; i < this._markers.length; i++) {
+          const m = this._markers[i];
+          if (m.parentNode) m.parentNode.removeChild(m);
         }
       }
     });
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel15 · put controllers down · hands = bright dots</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel16 · put controllers down · hands glow in tunnel</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
@@ -2209,7 +2252,7 @@
     fog="type: exponential; color: #000008; density: 0.006"
     renderer="antialias: true; colorManagement: true; physicallyCorrectLights: true"
     vr-mode-ui="enabled: true"
-    webxr="referenceSpaceType: local-floor; optionalFeatures: local-floor, bounded-floor, hand-tracking"
+    webxr="referenceSpaceType: local; optionalFeatures: hand-tracking, local-floor, bounded-floor"
     obb-collider="showColliders: false"
   >
     <a-entity light="type: ambient; color: #778899; intensity: 0.4"></a-entity>
@@ -2305,20 +2348,19 @@
         position="0 0 0"
         look-controls="enabled: true"
         wasd-controls="enabled: false"
-      ></a-camera>
+      >
+        <a-entity
+          id="leftHand"
+          hand-tracking-grab-controls="hand: left; color: #7dffd4; hoverColor: #ffe600; hoverEnabled: true"
+          pinch-tracker="hand: left; color: #7dffd4"
+        ></a-entity>
+        <a-entity
+          id="rightHand"
+          hand-tracking-grab-controls="hand: right; color: #ff9ad8; hoverColor: #ffe600; hoverEnabled: true"
+          pinch-tracker="hand: right; color: #ff9ad8"
+        ></a-entity>
+      </a-camera>
     </a-entity>
-
-    <!-- Hands at scene root (not under camera) so XR poses stay correct -->
-    <a-entity
-      id="leftHand"
-      hand-tracking-controls="hand: left; modelStyle: dots; modelColor: #7dffd4"
-      pinch-tracker="color: #7dffd4"
-    ></a-entity>
-    <a-entity
-      id="rightHand"
-      hand-tracking-controls="hand: right; modelStyle: dots; modelColor: #ff9ad8"
-      pinch-tracker="color: #ff9ad8"
-    ></a-entity>
 
     <a-entity hex-tunnel="speed: 0.024"></a-entity>
   </a-scene>
@@ -2386,7 +2428,7 @@
     const sceneEl = document.querySelector('a-scene');
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel15.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel16.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
@@ -2446,8 +2488,19 @@
       enterVrNow();
     }, { passive: false });
 
+    function forceHandsVisible() {
+      ['leftHand', 'rightHand'].forEach(function (id) {
+        const hand = document.getElementById(id);
+        if (!hand) return;
+        hand.object3D.visible = true;
+        const ht = hand.components['hand-tracking-controls'];
+        if (ht && ht.mesh) ht.mesh.visible = true;
+      });
+    }
+
     sceneEl.addEventListener('enter-vr', function () {
       document.body.classList.add('vr-on');
+      forceHandsVisible();
       if (TunnelDrone.ctx) {
         TunnelDrone.ctx.resume().then(function () {
           if (TunnelDrone.ctx.state !== 'running') resumeBtn.classList.add('show');
