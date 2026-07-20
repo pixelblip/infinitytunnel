@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 25</title>
+  <title>Rainbow Hex Tunnel 26</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel25 — psychedelic finger trails + smoke rings; still Quest-light.
+     * tunnel26 — low-poly stick hands + trails/rings; still Quest-light.
      */
     const TunnelDrone = {
       ctx: null,
@@ -2125,12 +2125,8 @@
     });
 
     /**
-     * Lite XR hands + grab + psychedelic trails + smoke rings.
-     * ~6 joints/hand. Trails/rings use pooled THREE meshes only.
-     *
-     * Wave index finger → rainbow trail
-     * Pinch in empty air then open (flick) → smoke ring
-     * Thumb+pinky kiss → extra fat smoke ring
+     * Lite XR hands + grab + trails + smoke rings + LOW-POLY stick hands.
+     * ~1 palm + 5 finger boxes per hand (not A-Frame GLB / 25-dot models).
      */
     AFRAME.registerComponent('lite-hands', {
       schema: {
@@ -2147,19 +2143,33 @@
         this._tmp2 = new THREE.Vector3();
         this._fwd = new THREE.Vector3();
         this._toyW = new THREE.Vector3();
+        this._yAxis = new THREE.Vector3(0, 1, 0);
         this._heldToy = null;
         this._heldSide = null;
         this._toys = null;
         this._rig = null;
         this._fxRoot = null;
         this._hue = Math.random() * 360;
+        // Joints for tips/pinch + proximal roots for stick fingers
         this._jointNames = [
           'wrist',
+          'thumb-phalanx-proximal',
           'thumb-tip',
+          'index-finger-phalanx-proximal',
           'index-finger-tip',
+          'middle-finger-phalanx-proximal',
           'middle-finger-tip',
+          'ring-finger-phalanx-proximal',
           'ring-finger-tip',
+          'pinky-finger-phalanx-proximal',
           'pinky-finger-tip'
+        ];
+        this._bones = [
+          { from: 'thumb-phalanx-proximal', to: 'thumb-tip', thick: 0.016 },
+          { from: 'index-finger-phalanx-proximal', to: 'index-finger-tip', thick: 0.014 },
+          { from: 'middle-finger-phalanx-proximal', to: 'middle-finger-tip', thick: 0.014 },
+          { from: 'ring-finger-phalanx-proximal', to: 'ring-finger-tip', thick: 0.013 },
+          { from: 'pinky-finger-phalanx-proximal', to: 'pinky-finger-tip', thick: 0.012 }
         ];
         this._hands = {
           left: this._makeHand(0x7dffd4),
@@ -2184,7 +2194,6 @@
         this._fxRoot = new THREE.Group();
         root.add(this._fxRoot);
 
-        // Psychedelic trail dots (shared pool)
         for (let i = 0; i < 56; i++) {
           const m = new THREE.Mesh(
             new THREE.SphereGeometry(0.014, 6, 6),
@@ -2197,12 +2206,9 @@
           );
           m.visible = false;
           this._fxRoot.add(m);
-          this._trails.push({
-            mesh: m, life: 0, max: 0, vx: 0, vy: 0, vz: 0
-          });
+          this._trails.push({ mesh: m, life: 0, max: 0, vx: 0, vy: 0, vz: 0 });
         }
 
-        // Smoke rings
         for (let i = 0; i < 5; i++) {
           const m = new THREE.Mesh(
             new THREE.TorusGeometry(0.08, 0.012, 8, 24),
@@ -2216,35 +2222,60 @@
           );
           m.visible = false;
           this._fxRoot.add(m);
-          this._rings.push({
-            mesh: m, life: 0, max: 0,
-            vx: 0, vy: 0, vz: 0,
-            grow: 1
-          });
+          this._rings.push({ mesh: m, life: 0, max: 0, vx: 0, vy: 0, vz: 0, grow: 1 });
         }
       },
       _makeHand: function (colorHex) {
         const THREE = AFRAME.THREE;
         const group = new THREE.Group();
         group.visible = false;
-        const mats = [
-          new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.95 }),
-          new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.9 }),
-          new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.9 }),
-          new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.85 }),
-          new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.85 }),
-          new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.8 })
-        ];
-        const radii = [0.02, 0.013, 0.013, 0.012, 0.011, 0.01];
-        const joints = [];
-        for (let i = 0; i < 6; i++) {
-          const m = new THREE.Mesh(new THREE.SphereGeometry(radii[i], 8, 8), mats[i]);
-          group.add(m);
-          joints.push(m);
+        const mat = new THREE.MeshBasicMaterial({
+          color: colorHex,
+          transparent: true,
+          opacity: 0.88,
+          depthWrite: true
+        });
+        const matDark = new THREE.MeshBasicMaterial({
+          color: colorHex,
+          transparent: true,
+          opacity: 0.75
+        });
+
+        // Palm slab
+        const palm = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat.clone());
+        palm.scale.set(0.075, 0.018, 0.09);
+        group.add(palm);
+
+        // Finger sticks (unit boxes, scaled each frame)
+        const fingers = [];
+        for (let i = 0; i < this._bones.length; i++) {
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), matDark.clone());
+          mesh.visible = false;
+          group.add(mesh);
+          fingers.push(mesh);
         }
+
+        // Tiny tip markers (subtle)
+        const tips = {};
+        ['thumb-tip', 'index-finger-tip', 'middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip'].forEach((name) => {
+          const m = new THREE.Mesh(
+            new THREE.SphereGeometry(0.008, 6, 6),
+            new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 })
+          );
+          m.visible = false;
+          group.add(m);
+          tips[name] = m;
+        });
+
+        const positions = {};
+        this._jointNames.forEach((n) => { positions[n] = new THREE.Vector3(); });
+
         return {
           group: group,
-          joints: joints,
+          palm: palm,
+          fingers: fingers,
+          tips: tips,
+          pos: positions,
           mid: new THREE.Vector3(),
           indexW: new THREE.Vector3(),
           middleW: new THREE.Vector3(),
@@ -2254,6 +2285,7 @@
           wristQ: new THREE.Quaternion(),
           prevIndex: new THREE.Vector3(),
           hasPrev: false,
+          ok: {},
           attached: false
         };
       },
@@ -2293,6 +2325,19 @@
         }
         return true;
       },
+      _placeBone: function (mesh, a, b, thick) {
+        const dir = this._tmp.copy(b).sub(a);
+        const len = dir.length();
+        if (len < 0.008) {
+          mesh.visible = false;
+          return;
+        }
+        mesh.visible = true;
+        mesh.position.copy(a).add(b).multiplyScalar(0.5);
+        dir.multiplyScalar(1 / len);
+        mesh.quaternion.setFromUnitVectors(this._yAxis, dir);
+        mesh.scale.set(thick, len, thick);
+      },
       _emitTrail: function (pos, vel, smoke) {
         if (!this._trails.length) return;
         const t = this._trails[this._trailI % this._trails.length];
@@ -2309,14 +2354,12 @@
         t.mesh.scale.set(sc, sc, sc);
         t.life = 0;
         t.max = smoke ? 0.55 + Math.random() * 0.35 : 0.4 + Math.random() * 0.35;
-        // drift slightly opposite / up
         t.vx = -vel.x * 0.15 + (Math.random() - 0.5) * 0.08;
         t.vy = 0.05 + Math.random() * 0.12 + (smoke ? 0.08 : 0);
         t.vz = -vel.z * 0.15 + (Math.random() - 0.5) * 0.08;
       },
       _spawnRing: function (pos, wristQ, fat) {
         if (!this._rings.length) return;
-        const THREE = this.THREE;
         const r = this._rings[this._ringI % this._rings.length];
         this._ringI++;
         r.mesh.visible = true;
@@ -2324,7 +2367,6 @@
         r.mesh.scale.set(fat ? 1.3 : 1, fat ? 1.3 : 1, fat ? 1.3 : 1);
         r.mesh.material.opacity = fat ? 0.75 : 0.6;
         r.mesh.material.color.setHex(this._hueHex(180 + Math.random() * 80));
-        // Face along wrist forward (-Z of wrist orientation)
         r.mesh.quaternion.copy(wristQ);
         this._fwd.set(0, 0, -1).applyQuaternion(wristQ).normalize();
         const speed = fat ? 0.55 : 0.4;
@@ -2377,39 +2419,58 @@
         const hand = this._hands[side];
         this._ensureAttached(hand);
         let seen = 0;
-        let okThumb = false;
-        let okIndex = false;
         for (let i = 0; i < this._jointNames.length; i++) {
           const name = this._jointNames[i];
           const quat = name === 'wrist' ? hand.wristQ : null;
-          const ok = this._poseJoint(frame, refSpace, xrHand, name, this._tmp, quat);
-          if (!ok) {
-            hand.joints[i].visible = false;
-            continue;
-          }
-          hand.joints[i].visible = true;
-          hand.joints[i].position.copy(this._tmp);
-          seen++;
-          if (name === 'wrist') hand.wristW.copy(this._tmp);
-          if (name === 'thumb-tip') {
-            okThumb = true;
-            hand.thumbW.copy(this._tmp);
-            hand.mid.copy(this._tmp);
-          }
-          if (name === 'index-finger-tip') {
-            okIndex = true;
-            hand.indexW.copy(this._tmp);
-          }
-          if (name === 'middle-finger-tip') hand.middleW.copy(this._tmp);
-          if (name === 'pinky-finger-tip') hand.pinkyW.copy(this._tmp);
+          const ok = this._poseJoint(frame, refSpace, xrHand, name, hand.pos[name], quat);
+          hand.ok[name] = ok;
+          if (ok) seen++;
         }
         if (!seen) {
           hand.group.visible = false;
           return null;
         }
         hand.group.visible = true;
-        if (!okThumb || !okIndex) return null;
-        hand.mid.add(hand.indexW).multiplyScalar(0.5);
+
+        // Palm at wrist, oriented with wrist, nudged toward fingers
+        if (hand.ok.wrist) {
+          hand.palm.visible = true;
+          hand.palm.quaternion.copy(hand.wristQ);
+          this._fwd.set(0, 0, -0.035).applyQuaternion(hand.wristQ);
+          hand.palm.position.copy(hand.pos.wrist).add(this._fwd);
+          hand.wristW.copy(hand.pos.wrist);
+        } else {
+          hand.palm.visible = false;
+        }
+
+        // Stick fingers
+        for (let i = 0; i < this._bones.length; i++) {
+          const b = this._bones[i];
+          if (hand.ok[b.from] && hand.ok[b.to]) {
+            this._placeBone(hand.fingers[i], hand.pos[b.from], hand.pos[b.to], b.thick);
+          } else {
+            hand.fingers[i].visible = false;
+          }
+        }
+
+        // Tip dots
+        Object.keys(hand.tips).forEach((name) => {
+          if (hand.ok[name]) {
+            hand.tips[name].visible = true;
+            hand.tips[name].position.copy(hand.pos[name]);
+          } else {
+            hand.tips[name].visible = false;
+          }
+        });
+
+        if (!hand.ok['thumb-tip'] || !hand.ok['index-finger-tip']) return null;
+
+        hand.thumbW.copy(hand.pos['thumb-tip']);
+        hand.indexW.copy(hand.pos['index-finger-tip']);
+        hand.middleW.copy(hand.ok['middle-finger-tip'] ? hand.pos['middle-finger-tip'] : hand.indexW);
+        hand.pinkyW.copy(hand.ok['pinky-finger-tip'] ? hand.pos['pinky-finger-tip'] : hand.indexW);
+        hand.mid.copy(hand.thumbW).add(hand.indexW).multiplyScalar(0.5);
+
         const pinchDist = hand.thumbW.distanceTo(hand.indexW);
         const ringDist = hand.thumbW.distanceTo(hand.pinkyW);
         return {
@@ -2439,7 +2500,6 @@
         const velZ = this._tmp2.z;
         hand.prevIndex.copy(info.index);
 
-        // Wave index → psychedelic trail
         if (speed > this.data.trailSpeed) {
           const n = Math.min(3, 1 + Math.floor(speed * 2));
           for (let i = 0; i < n; i++) {
@@ -2451,7 +2511,6 @@
             this._emitTrail(this._tmp, this._tmp2, false);
           }
         }
-        // Softer smoke wisps from middle finger when waving
         if (speed > this.data.trailSpeed * 0.65 && info.middle) {
           this._tmp2.set(velX, velY, velZ);
           this._emitTrail(info.middle, this._tmp2, true);
@@ -2494,11 +2553,9 @@
           this._hands.right.hasPrev = false;
         }
 
-        // Trails always (both hands)
         this._updateTrails(infos.left, dt);
         this._updateTrails(infos.right, dt);
 
-        // Smoke rings: empty-air pinch release, or thumb+pinky "O"
         ['left', 'right'].forEach((side) => {
           const info = infos[side];
           const was = this._wasPinched[side];
@@ -2508,16 +2565,13 @@
             this._wasRingPinch[side] = false;
             return;
           }
-          // Fat ring: thumb+pinky kiss then open
           if (wasRing && !info.ringPinch) {
             this._spawnRing(info.mid, info.wristQ, true);
           }
           this._wasRingPinch[side] = info.ringPinch;
 
-          // Normal smoke ring: pinch in empty space then open (and not holding a toy with that hand)
           const holdingHere = this._heldToy && this._heldSide === side;
           if (was && info.open && !holdingHere) {
-            // Only if not near a toy (air pinch)
             let nearToy = false;
             for (let i = 0; i < toys.length; i++) {
               const toy = toys[i].components['air-toy'];
@@ -2533,7 +2587,6 @@
           this._wasPinched[side] = info.pinched;
         });
 
-        // Toy grab / follow
         if (this._heldToy && this._heldSide) {
           const info = infos[this._heldSide];
           if (!info || info.open) {
@@ -2600,7 +2653,7 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel25 · wave for trails · air-pinch for smoke rings</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel26 · low-poly hands · trails & smoke rings</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
@@ -2741,7 +2794,7 @@
     });
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel25.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel26.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
