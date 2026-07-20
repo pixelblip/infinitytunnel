@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 14</title>
+  <title>Rainbow Hex Tunnel 15</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -52,6 +52,8 @@
       padding: 0.75rem 1.4rem; cursor: pointer; touch-action: manipulation;
     }
     body.audio-on #btnEnterVr { display: block; }
+    body.audio-on #handHint { display: block; }
+    body.vr-on #handHint { display: none; }
     body.vr-on #btnEnterVr { display: none; }
 
     /* Force sound unlock before VR on Quest */
@@ -62,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel14 — Quest VR needs HTTPS; explicit Enter VR after sound unlock.
+     * tunnel15 — bright hand dots + pinch glow so hands are always visible.
      */
     const TunnelDrone = {
       ctx: null,
@@ -2119,35 +2121,88 @@
       }
     });
 
-    /** Store latest pinch point on each hand for toys to follow */
+    /** Pinch cache + bright visible fingertips (mesh often fails on Quest) */
     AFRAME.registerComponent('pinch-tracker', {
+      schema: {
+        color: { type: 'color', default: '#7dffd4' }
+      },
       init: function () {
+        const THREE = AFRAME.THREE;
         this.pinchPos = null;
+        this._tips = [];
+        this._wrist = null;
+        // Bright wrist orb
+        const wrist = document.createElement('a-sphere');
+        wrist.setAttribute('radius', '0.028');
+        wrist.setAttribute('material', 'shader: flat; color: ' + this.data.color + '; opacity: 0.95; transparent: true');
+        wrist.setAttribute('visible', 'false');
+        this.el.appendChild(wrist);
+        this._wrist = wrist;
+        // Fingertip orbs
+        for (let i = 0; i < 5; i++) {
+          const tip = document.createElement('a-sphere');
+          tip.setAttribute('radius', i === 0 ? '0.016' : '0.012');
+          tip.setAttribute('material', 'shader: flat; color: ' + this.data.color + '; opacity: 0.9; transparent: true');
+          tip.setAttribute('visible', 'false');
+          this.el.appendChild(tip);
+          this._tips.push(tip);
+        }
         this.el.addEventListener('pinchstarted', (e) => {
           if (e.detail && e.detail.position) {
             this.pinchPos = e.detail.position.clone
               ? e.detail.position.clone()
-              : new AFRAME.THREE.Vector3(e.detail.position.x, e.detail.position.y, e.detail.position.z);
+              : new THREE.Vector3(e.detail.position.x, e.detail.position.y, e.detail.position.z);
           }
         });
         this.el.addEventListener('pinchmoved', (e) => {
           if (e.detail && e.detail.position) {
-            if (!this.pinchPos) this.pinchPos = new AFRAME.THREE.Vector3();
+            if (!this.pinchPos) this.pinchPos = new THREE.Vector3();
             this.pinchPos.set(e.detail.position.x, e.detail.position.y, e.detail.position.z);
           }
         });
         this.el.addEventListener('pinchended', () => {
           this.pinchPos = null;
         });
+      },
+      tick: function () {
+        const ht = this.el.components['hand-tracking-controls'];
+        // Keep entity visible whenever A-Frame has hand data
+        if (ht && ht.mesh) {
+          this.el.object3D.visible = true;
+          if (ht.mesh.visible === false) ht.mesh.visible = true;
+        }
+        // Bone indices: wrist ~0; fingertips vary — use A-Frame bones if present
+        const bones = ht && ht.bones;
+        if (bones && bones.length) {
+          // Wrist
+          if (bones[0] && this._wrist) {
+            this._wrist.setAttribute('visible', 'true');
+            this._wrist.object3D.position.copy(bones[0].position);
+          }
+          // Prefer fingertip bones if available (A-Frame oculus hand: tips often at ends)
+          const tipIdx = [4, 9, 14, 19, 24];
+          for (let i = 0; i < this._tips.length; i++) {
+            const b = bones[tipIdx[i]] || bones[Math.min(bones.length - 1, 4 + i * 4)];
+            if (b) {
+              this._tips[i].setAttribute('visible', 'true');
+              this._tips[i].object3D.position.copy(b.position);
+            }
+          }
+        } else if (this.pinchPos && this._wrist) {
+          // At least show pinch point
+          this._wrist.setAttribute('visible', 'true');
+          this._wrist.object3D.position.copy(this.pinchPos);
+        }
       }
     });
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel14 · Quest: use https://192.168.1.76:8900/tunnel14.html</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel15 · put controllers down · hands = bright dots</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
+  <p id="handHint" style="display:none;position:fixed;bottom:3.2rem;left:50%;transform:translateX(-50%);z-index:10002;color:#c8c4b8;font:0.6rem Georgia,serif;letter-spacing:0.06em;text-align:center;opacity:0.8">Put controllers down to see your hands</p>
 
   <a-scene
     background="color: #000008"
@@ -2256,13 +2311,13 @@
     <!-- Hands at scene root (not under camera) so XR poses stay correct -->
     <a-entity
       id="leftHand"
-      hand-tracking-controls="hand: left; modelStyle: mesh; modelColor: #7dffd4; modelOpacity: 0.95"
-      pinch-tracker
+      hand-tracking-controls="hand: left; modelStyle: dots; modelColor: #7dffd4"
+      pinch-tracker="color: #7dffd4"
     ></a-entity>
     <a-entity
       id="rightHand"
-      hand-tracking-controls="hand: right; modelStyle: mesh; modelColor: #ff9ad8; modelOpacity: 0.95"
-      pinch-tracker
+      hand-tracking-controls="hand: right; modelStyle: dots; modelColor: #ff9ad8"
+      pinch-tracker="color: #ff9ad8"
     ></a-entity>
 
     <a-entity hex-tunnel="speed: 0.024"></a-entity>
@@ -2331,7 +2386,7 @@
     const sceneEl = document.querySelector('a-scene');
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel14.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel15.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
