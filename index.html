@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 9</title>
+  <title>Rainbow Hex Tunnel 10</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -43,7 +43,7 @@
   </style>
   <script>
     /**
-     * tunnel9 — centred in the bore; reliable pinch toys; visible hands.
+     * tunnel10 — slower flight; hands + toys on camera (always visible in VR).
      */
     const TunnelDrone = {
       ctx: null,
@@ -1590,7 +1590,7 @@
 
     AFRAME.registerComponent('hex-tunnel', {
       schema: {
-        speed: { type: 'number', default: 0.007 }
+        speed: { type: 'number', default: 0.0025 }
       },
 
       init() {
@@ -1890,27 +1890,29 @@
      */
     AFRAME.registerComponent('pinch-play-toy', {
       schema: {
-        homeSide: { type: 'number', default: 1 },
-        homeDist: { type: 'number', default: 0.5 },
-        homeDown: { type: 'number', default: 0.05 },
-        grabRadius: { type: 'number', default: 0.22 }
+        homeX: { type: 'number', default: 0.24 },
+        homeY: { type: 'number', default: -0.05 },
+        homeZ: { type: 'number', default: -0.38 },
+        grabRadius: { type: 'number', default: 0.28 }
       },
       init: function () {
         const THREE = AFRAME.THREE;
         this.held = false;
         this.holdHand = null;
+        this.cam = null;
         this._tmp = new THREE.Vector3();
-        this._tmp2 = new THREE.Vector3();
-        this._quat = new THREE.Quaternion();
         this._last = new THREE.Vector3();
         this.trails = [];
-        this.el.object3D.getWorldPosition(this._last);
+        this._homeLocal = new THREE.Vector3(this.data.homeX, this.data.homeY, this.data.homeZ);
         this._onPinchStart = this.onPinchStart.bind(this);
         this._onPinchEnd = this.onPinchEnd.bind(this);
+        this.bindHands();
+        this.el.sceneEl.addEventListener('enter-vr', () => this.bindHands());
         this.el.sceneEl.addEventListener('loaded', () => this.bindHands());
-        setTimeout(() => this.bindHands(), 500);
       },
       bindHands: function () {
+        if (this._handsBound) return;
+        this._handsBound = true;
         ['leftHand', 'rightHand'].forEach((id) => {
           const hand = document.getElementById(id);
           if (!hand) return;
@@ -1926,7 +1928,14 @@
         if (this._tmp.distanceTo(pos) > this.data.grabRadius) return;
         this.held = true;
         this.holdHand = e.target;
-        this.el.setAttribute('scale', '1.2 1.2 1.2');
+        this.el.setAttribute('scale', '1.25 1.25 1.25');
+        // World space while held
+        if (this.el.parentNode !== this.el.sceneEl) {
+          this.el.object3D.getWorldPosition(this._tmp);
+          this.el.sceneEl.object3D.updateMatrixWorld(true);
+          this.el.sceneEl.appendChild(this.el);
+          this.el.object3D.position.copy(this._tmp);
+        }
       },
       onPinchEnd: function (e) {
         if (!this.held) return;
@@ -1934,6 +1943,15 @@
         this.held = false;
         this.holdHand = null;
         this.el.setAttribute('scale', '1 1 1');
+        this.returnToCamera();
+      },
+      returnToCamera: function () {
+        if (!this.cam) this.cam = document.getElementById('cam');
+        if (!this.cam) return;
+        this.el.object3D.getWorldPosition(this._tmp);
+        this.cam.object3D.updateMatrixWorld(true);
+        this.cam.appendChild(this.el);
+        this.el.object3D.position.copy(this._homeLocal);
       },
       spawnTrail: function (p, hue) {
         if (this.trails.length > 40) return;
@@ -1957,8 +1975,6 @@
       },
       tick: function (t, dtMs) {
         const dt = Math.min(0.05, (dtMs || 16) / 1000);
-        const THREE = AFRAME.THREE;
-        const cam = document.getElementById('cam');
         const hue = (t * 0.06) % 360;
 
         // Colour pulse
@@ -1989,26 +2005,20 @@
             this.el.object3D.position.copy(this._tmp);
           }
           this.el.object3D.getWorldPosition(this._tmp);
-          if (this._tmp.distanceTo(this._last) > 0.01) {
+          if (this._tmp.distanceTo(this._last) > 0.008) {
             this.spawnTrail(this._tmp, hue);
             this.spawnTrail(this._tmp, hue + 40);
           }
           this._last.copy(this._tmp);
-        } else if (cam) {
-          // Float at chest height in front of camera (tunnel centre, not floor)
-          cam.object3D.getWorldPosition(this._tmp);
-          cam.object3D.getWorldQuaternion(this._quat);
-          const forward = this._tmp2.set(0, 0, -1).applyQuaternion(this._quat);
-          const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this._quat);
-          const bob = Math.sin(t * 0.0022) * 0.03;
-          const target = new THREE.Vector3()
-            .copy(this._tmp)
-            .addScaledVector(forward, this.data.homeDist)
-            .addScaledVector(right, this.data.homeSide * 0.28)
-            .add(new THREE.Vector3(0, -this.data.homeDown + bob, 0));
-          if (this.el.parentNode !== this.el.sceneEl) this.el.sceneEl.appendChild(this.el);
-          this.el.object3D.position.lerp(target, 1 - Math.pow(0.0004, dt));
-          this.el.object3D.rotation.y += dt * 0.8;
+        } else {
+          if (!this.cam) this.cam = document.getElementById('cam');
+          if (this.cam && this.el.parentNode !== this.cam) {
+            this.returnToCamera();
+          }
+          const bob = Math.sin(t * 0.0022) * 0.015;
+          this._homeLocal.set(this.data.homeX, this.data.homeY + bob, this.data.homeZ);
+          this.el.object3D.position.lerp(this._homeLocal, 1 - Math.pow(0.001, dt));
+          this.el.object3D.rotation.y += dt * 0.9;
         }
 
         // Age trails
@@ -2057,7 +2067,7 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel9 · centred · pinch the plasma orb</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel10 · slow drift · pinch the plasma orbs</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
 
   <a-scene
@@ -2066,6 +2076,7 @@
     renderer="antialias: true; colorManagement: true; physicallyCorrectLights: true"
     vr-mode-ui="enabled: true"
     webxr="referenceSpaceType: local; optionalFeatures: hand-tracking, local-floor, bounded-floor"
+    obb-collider="showColliders: false"
   >
     <a-entity light="type: ambient; color: #778899; intensity: 0.4"></a-entity>
     <a-entity id="mood-light" light="type: point; color: #ff4080; intensity: 0.65; distance: 28" position="0 0 -5"></a-entity>
@@ -2084,61 +2095,58 @@
     ></a-box>
     <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 3.2; distance: 8" position="0.25 0.25 -1.8"></a-entity>
 
-    <!-- Trippy plasma orb — pinch (thumb+index) to hold, wave for trails -->
-    <a-entity id="plasma-toy" pinch-play-toy position="0.25 0 -0.5">
-      <a-sphere
-        radius="0.09"
-        material="color: #ff66cc; metalness: 0.2; roughness: 0.15; emissive: #ff2299; emissiveIntensity: 0.85; transparent: true; opacity: 0.92"
-      ></a-sphere>
-      <a-torus
-        radius="0.13"
-        radius-tubular="0.012"
-        material="shader: flat; color: #66fff0; transparent: true; opacity: 0.75"
-        animation="property: rotation; to: 360 180 360; loop: true; dur: 7000; easing: linear"
-      ></a-torus>
-      <a-torus
-        radius="0.16"
-        radius-tubular="0.008"
-        rotation="90 0 0"
-        material="shader: flat; color: #ffe66a; transparent: true; opacity: 0.65"
-        animation="property: rotation; to: 180 360 720; loop: true; dur: 11000; easing: linear"
-      ></a-torus>
-      <a-entity light="type: point; color: #ff66cc; intensity: 1.4; distance: 3.5"></a-entity>
-    </a-entity>
-
-    <!-- Second smaller sparkle for the other hand -->
-    <a-entity id="sparkle-toy" pinch-play-toy="homeSide: -1; homeDist: 0.48; homeDown: 0.08" position="-0.25 0 -0.48">
-      <a-entity
-        geometry="primitive: octahedron; radius: 0.07"
-        material="color: #66ffcc; metalness: 0.45; roughness: 0.1; emissive: #22ffaa; emissiveIntensity: 0.7"
-        animation="property: rotation; to: 360 360 0; loop: true; dur: 9000; easing: linear"
-      ></a-entity>
-      <a-entity light="type: point; color: #66ffcc; intensity: 1.1; distance: 3"></a-entity>
-    </a-entity>
-
-    <!-- Rig at tunnel centre (y=0). referenceSpace local = no floor boost. -->
+    <!-- Trippy toys + hands live on the camera so they stay in view in VR -->
     <a-entity id="rig" position="0 0 0">
       <a-camera
         id="cam"
         position="0 0 0"
         look-controls="enabled: true"
         wasd-controls="enabled: false"
-      ></a-camera>
+      >
+        <a-entity
+          id="leftHand"
+          hand-tracking-grab-controls="hand: left; color: #7dffd4; hoverColor: #ffe600; hoverEnabled: true"
+          pinch-tracker
+        ></a-entity>
+        <a-entity
+          id="rightHand"
+          hand-tracking-grab-controls="hand: right; color: #ff9ad8; hoverColor: #ffe600; hoverEnabled: true"
+          pinch-tracker
+        ></a-entity>
+
+        <a-entity id="plasma-toy" grabbable pinch-play-toy="homeX: 0.26; homeY: -0.04; homeZ: -0.42">
+          <a-sphere
+            radius="0.11"
+            material="color: #ff66cc; metalness: 0.2; roughness: 0.15; emissive: #ff2299; emissiveIntensity: 0.95; transparent: true; opacity: 0.95"
+          ></a-sphere>
+          <a-torus
+            radius="0.15"
+            radius-tubular="0.014"
+            material="shader: flat; color: #66fff0; transparent: true; opacity: 0.85"
+            animation="property: rotation; to: 360 180 360; loop: true; dur: 7000; easing: linear"
+          ></a-torus>
+          <a-torus
+            radius="0.19"
+            radius-tubular="0.01"
+            rotation="90 0 0"
+            material="shader: flat; color: #ffe66a; transparent: true; opacity: 0.75"
+            animation="property: rotation; to: 180 360 720; loop: true; dur: 11000; easing: linear"
+          ></a-torus>
+          <a-entity light="type: point; color: #ff66cc; intensity: 1.8; distance: 4"></a-entity>
+        </a-entity>
+
+        <a-entity id="sparkle-toy" grabbable pinch-play-toy="homeX: -0.26; homeY: -0.04; homeZ: -0.42">
+          <a-entity
+            geometry="primitive: octahedron; radius: 0.09"
+            material="color: #66ffcc; metalness: 0.45; roughness: 0.1; emissive: #22ffaa; emissiveIntensity: 0.85"
+            animation="property: rotation; to: 360 360 0; loop: true; dur: 9000; easing: linear"
+          ></a-entity>
+          <a-entity light="type: point; color: #66ffcc; intensity: 1.4; distance: 3.5"></a-entity>
+        </a-entity>
+      </a-camera>
     </a-entity>
 
-    <!-- Hands: scene root + hand-tracking only (pinch-play-toy handles grab) -->
-    <a-entity
-      id="leftHand"
-      hand-tracking-controls="hand: left; modelStyle: mesh; modelColor: #7dffd4; modelOpacity: 0.95"
-      pinch-tracker
-    ></a-entity>
-    <a-entity
-      id="rightHand"
-      hand-tracking-controls="hand: right; modelStyle: mesh; modelColor: #ff9ad8; modelOpacity: 0.95"
-      pinch-tracker
-    ></a-entity>
-
-    <a-entity hex-tunnel="speed: 0.007"></a-entity>
+    <a-entity hex-tunnel="speed: 0.0025"></a-entity>
   </a-scene>
 
   <script>
