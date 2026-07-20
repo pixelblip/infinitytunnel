@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 26</title>
+  <title>Rainbow Hex Tunnel 27</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel26 — low-poly stick hands + trails/rings; still Quest-light.
+     * tunnel27 — detailed low-poly hands + half-count yellow spin squares.
      */
     const TunnelDrone = {
       ctx: null,
@@ -1622,8 +1622,8 @@
         this.WALL_THICK = 0.1;
         this.WHITE_EVERY = 18;
         this.PLANE_SIZE = 0.3;
-        this.PLANE_GAP = 1.2;
-        this.PLANES_PER_LINE = 6;
+        this.PLANE_GAP = 1.1;
+        this.PLANES_PER_LINE = 18;
         this.camZ = 0;
         this.segments = [];
         this.cornerPlanes = [];
@@ -1633,8 +1633,7 @@
         this.cubeLight = document.querySelector('#cube-light');
 
         this.buildTunnel();
-        // Corner planes skipped on Quest (were 200+ animated meshes)
-        this.cornerPlanes = [];
+        this.buildCornerPlanes();
         this.buildWallLights();
         this._nextFxAt = 0;
       },
@@ -1729,6 +1728,11 @@
             plane.setAttribute(
               'material',
               'color: #ffff00; emissive: #ffe600; emissiveIntensity: 0.85; side: double; metalness: 0.35; roughness: 0.3'
+            );
+            const dur = 16000;
+            plane.setAttribute(
+              'animation',
+              `property: rotation; to: 0 0 360; loop: true; dur: ${dur}; delay: ${(i / this.PLANES_PER_LINE) * dur}; easing: linear`
             );
             this.el.appendChild(plane);
             planes.push(plane);
@@ -2150,26 +2154,47 @@
         this._rig = null;
         this._fxRoot = null;
         this._hue = Math.random() * 360;
-        // Joints for tips/pinch + proximal roots for stick fingers
+        // Full finger chains for low-poly segments (pose only — no A-Frame hand GLB)
         this._jointNames = [
           'wrist',
-          'thumb-phalanx-proximal',
-          'thumb-tip',
-          'index-finger-phalanx-proximal',
-          'index-finger-tip',
-          'middle-finger-phalanx-proximal',
-          'middle-finger-tip',
-          'ring-finger-phalanx-proximal',
-          'ring-finger-tip',
-          'pinky-finger-phalanx-proximal',
-          'pinky-finger-tip'
+          'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
+          'index-finger-metacarpal', 'index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate',
+          'index-finger-phalanx-distal', 'index-finger-tip',
+          'middle-finger-metacarpal', 'middle-finger-phalanx-proximal', 'middle-finger-phalanx-intermediate',
+          'middle-finger-phalanx-distal', 'middle-finger-tip',
+          'ring-finger-metacarpal', 'ring-finger-phalanx-proximal', 'ring-finger-phalanx-intermediate',
+          'ring-finger-phalanx-distal', 'ring-finger-tip',
+          'pinky-finger-metacarpal', 'pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate',
+          'pinky-finger-phalanx-distal', 'pinky-finger-tip'
         ];
         this._bones = [
-          { from: 'thumb-phalanx-proximal', to: 'thumb-tip', thick: 0.016 },
-          { from: 'index-finger-phalanx-proximal', to: 'index-finger-tip', thick: 0.014 },
-          { from: 'middle-finger-phalanx-proximal', to: 'middle-finger-tip', thick: 0.014 },
-          { from: 'ring-finger-phalanx-proximal', to: 'ring-finger-tip', thick: 0.013 },
-          { from: 'pinky-finger-phalanx-proximal', to: 'pinky-finger-tip', thick: 0.012 }
+          // Palm bridge + wrist
+          { from: 'wrist', to: 'middle-finger-metacarpal', thick: 0.022, palm: true },
+          { from: 'index-finger-metacarpal', to: 'middle-finger-metacarpal', thick: 0.018, palm: true },
+          { from: 'middle-finger-metacarpal', to: 'ring-finger-metacarpal', thick: 0.018, palm: true },
+          { from: 'ring-finger-metacarpal', to: 'pinky-finger-metacarpal', thick: 0.017, palm: true },
+          { from: 'thumb-metacarpal', to: 'index-finger-metacarpal', thick: 0.016, palm: true },
+          // Thumb (3 segments)
+          { from: 'thumb-metacarpal', to: 'thumb-phalanx-proximal', thick: 0.015 },
+          { from: 'thumb-phalanx-proximal', to: 'thumb-phalanx-distal', thick: 0.014 },
+          { from: 'thumb-phalanx-distal', to: 'thumb-tip', thick: 0.013 },
+          // Four fingers (3 segments each)
+          { from: 'index-finger-metacarpal', to: 'index-finger-phalanx-proximal', thick: 0.013 },
+          { from: 'index-finger-phalanx-proximal', to: 'index-finger-phalanx-intermediate', thick: 0.012 },
+          { from: 'index-finger-phalanx-intermediate', to: 'index-finger-phalanx-distal', thick: 0.011 },
+          { from: 'index-finger-phalanx-distal', to: 'index-finger-tip', thick: 0.01 },
+          { from: 'middle-finger-metacarpal', to: 'middle-finger-phalanx-proximal', thick: 0.013 },
+          { from: 'middle-finger-phalanx-proximal', to: 'middle-finger-phalanx-intermediate', thick: 0.012 },
+          { from: 'middle-finger-phalanx-intermediate', to: 'middle-finger-phalanx-distal', thick: 0.011 },
+          { from: 'middle-finger-phalanx-distal', to: 'middle-finger-tip', thick: 0.01 },
+          { from: 'ring-finger-metacarpal', to: 'ring-finger-phalanx-proximal', thick: 0.012 },
+          { from: 'ring-finger-phalanx-proximal', to: 'ring-finger-phalanx-intermediate', thick: 0.011 },
+          { from: 'ring-finger-phalanx-intermediate', to: 'ring-finger-phalanx-distal', thick: 0.01 },
+          { from: 'ring-finger-phalanx-distal', to: 'ring-finger-tip', thick: 0.009 },
+          { from: 'pinky-finger-metacarpal', to: 'pinky-finger-phalanx-proximal', thick: 0.011 },
+          { from: 'pinky-finger-phalanx-proximal', to: 'pinky-finger-phalanx-intermediate', thick: 0.01 },
+          { from: 'pinky-finger-phalanx-intermediate', to: 'pinky-finger-phalanx-distal', thick: 0.009 },
+          { from: 'pinky-finger-phalanx-distal', to: 'pinky-finger-tip', thick: 0.008 }
         ];
         this._hands = {
           left: this._makeHand(0x7dffd4),
@@ -2240,13 +2265,18 @@
           transparent: true,
           opacity: 0.75
         });
+        const matPalm = new THREE.MeshBasicMaterial({
+          color: colorHex,
+          transparent: true,
+          opacity: 0.82
+        });
 
         // Palm slab
-        const palm = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat.clone());
-        palm.scale.set(0.075, 0.018, 0.09);
+        const palm = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), matPalm);
+        palm.scale.set(0.088, 0.022, 0.1);
         group.add(palm);
 
-        // Finger sticks (unit boxes, scaled each frame)
+        // Finger segments (unit boxes, scaled each frame)
         const fingers = [];
         for (let i = 0; i < this._bones.length; i++) {
           const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), matDark.clone());
@@ -2255,12 +2285,29 @@
           fingers.push(mesh);
         }
 
-        // Tiny tip markers (subtle)
+        // Knuckle bumps at metacarpal / proximal joints
+        const knuckles = {};
+        [
+          'thumb-metacarpal', 'index-finger-metacarpal', 'middle-finger-metacarpal',
+          'ring-finger-metacarpal', 'pinky-finger-metacarpal',
+          'index-finger-phalanx-proximal', 'middle-finger-phalanx-proximal',
+          'ring-finger-phalanx-proximal', 'pinky-finger-phalanx-proximal'
+        ].forEach((name) => {
+          const m = new THREE.Mesh(
+            new THREE.SphereGeometry(0.009, 6, 6),
+            new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.92 })
+          );
+          m.visible = false;
+          group.add(m);
+          knuckles[name] = m;
+        });
+
+        // Fingertip highlights
         const tips = {};
         ['thumb-tip', 'index-finger-tip', 'middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip'].forEach((name) => {
           const m = new THREE.Mesh(
-            new THREE.SphereGeometry(0.008, 6, 6),
-            new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 })
+            new THREE.SphereGeometry(0.009, 6, 6),
+            new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.65 })
           );
           m.visible = false;
           group.add(m);
@@ -2274,6 +2321,7 @@
           group: group,
           palm: palm,
           fingers: fingers,
+          knuckles: knuckles,
           tips: tips,
           pos: positions,
           mid: new THREE.Vector3(),
@@ -2330,13 +2378,21 @@
         const len = dir.length();
         if (len < 0.008) {
           mesh.visible = false;
-          return;
+          return false;
         }
         mesh.visible = true;
         mesh.position.copy(a).add(b).multiplyScalar(0.5);
         dir.multiplyScalar(1 / len);
         mesh.quaternion.setFromUnitVectors(this._yAxis, dir);
         mesh.scale.set(thick, len, thick);
+        return true;
+      },
+      _seg: function (hand, from, to, thick, mesh) {
+        if (hand.ok[from] && hand.ok[to]) {
+          return this._placeBone(mesh, hand.pos[from], hand.pos[to], thick);
+        }
+        mesh.visible = false;
+        return false;
       },
       _emitTrail: function (pos, vel, smoke) {
         if (!this._trails.length) return;
@@ -2443,17 +2499,23 @@
           hand.palm.visible = false;
         }
 
-        // Stick fingers
+        // Segments (skip missing intermediate joints gracefully)
         for (let i = 0; i < this._bones.length; i++) {
           const b = this._bones[i];
-          if (hand.ok[b.from] && hand.ok[b.to]) {
-            this._placeBone(hand.fingers[i], hand.pos[b.from], hand.pos[b.to], b.thick);
-          } else {
-            hand.fingers[i].visible = false;
-          }
+          this._seg(hand, b.from, b.to, b.thick, hand.fingers[i]);
         }
 
-        // Tip dots
+        // Knuckle bumps
+        Object.keys(hand.knuckles).forEach((name) => {
+          if (hand.ok[name]) {
+            hand.knuckles[name].visible = true;
+            hand.knuckles[name].position.copy(hand.pos[name]);
+          } else {
+            hand.knuckles[name].visible = false;
+          }
+        });
+
+        // Fingertips
         Object.keys(hand.tips).forEach((name) => {
           if (hand.ok[name]) {
             hand.tips[name].visible = true;
@@ -2653,7 +2715,7 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel26 · low-poly hands · trails & smoke rings</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel27 · detailed hands · yellow spin squares</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
@@ -2794,7 +2856,7 @@
     });
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel26.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel27.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
