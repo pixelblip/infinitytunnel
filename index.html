@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 16</title>
+  <title>Rainbow Hex Tunnel 17</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel16 — centered tunnel view (local ref space) + world-space hand glow.
+     * tunnel17 — hands as rig siblings (not under camera) so XR poses line up.
      */
     const TunnelDrone = {
       ctx: null,
@@ -2121,7 +2121,11 @@
       }
     });
 
-    /** Pinch cache + scene-root glow orbs at world joint positions (Quest-safe) */
+    /**
+     * Pinch cache + glow orbs. Markers live under #rig (same parent as camera)
+     * and use raw XR joint poses as LOCAL coords — same space A-Frame uses for the head.
+     * Do NOT parent hands under the camera (that stacks head pose and drops hands low).
+     */
     AFRAME.registerComponent('pinch-tracker', {
       schema: {
         color: { type: 'color', default: '#7dffd4' },
@@ -2130,26 +2134,38 @@
       init: function () {
         const THREE = AFRAME.THREE;
         this.pinchPos = null;
-        this._world = new THREE.Vector3();
+        this._tmp = new THREE.Vector3();
         this._markers = [];
-        const scene = this.el.sceneEl;
-        const makeOrb = (radius) => {
-          const orb = document.createElement('a-sphere');
-          orb.setAttribute('radius', radius);
-          orb.setAttribute(
-            'material',
-            'shader: flat; color: ' + this.data.color +
-            '; opacity: 0.98; transparent: true; depthTest: false'
-          );
-          orb.setAttribute('visible', 'false');
-          scene.appendChild(orb);
-          this._markers.push(orb);
-          return orb;
+        this._markerParent = null;
+        const attach = () => {
+          const rig = document.getElementById('rig');
+          const parent = rig || this.el.sceneEl;
+          if (this._markerParent === parent) return;
+          this._markerParent = parent;
+          if (!this._markers.length) {
+            const makeOrb = (radius) => {
+              const orb = document.createElement('a-sphere');
+              orb.setAttribute('radius', radius);
+              orb.setAttribute(
+                'material',
+                'shader: flat; color: ' + this.data.color +
+                '; opacity: 0.98; transparent: true; depthTest: false'
+              );
+              orb.setAttribute('visible', 'false');
+              parent.appendChild(orb);
+              this._markers.push(orb);
+            };
+            makeOrb('0.038');
+            for (let i = 0; i < 5; i++) makeOrb(i === 0 ? '0.024' : '0.02');
+          } else {
+            for (let i = 0; i < this._markers.length; i++) {
+              parent.appendChild(this._markers[i]);
+            }
+          }
         };
-        makeOrb('0.038');
-        for (let i = 0; i < 5; i++) {
-          makeOrb(i === 0 ? '0.024' : '0.02');
-        }
+        attach();
+        this.el.sceneEl.addEventListener('loaded', attach);
+        this.el.sceneEl.addEventListener('enter-vr', attach);
         this.el.addEventListener('pinchstarted', (e) => {
           if (e.detail && e.detail.position) {
             this.pinchPos = e.detail.position.clone
@@ -2167,28 +2183,11 @@
           this.pinchPos = null;
         });
       },
-      _place: function (idx, v) {
+      _placeLocal: function (idx, x, y, z) {
         const m = this._markers[idx];
         if (!m) return;
         m.setAttribute('visible', 'true');
-        m.object3D.position.set(v.x, v.y, v.z);
-      },
-      _fromBones: function (ht) {
-        const bones = ht && ht.bones;
-        if (!bones || !bones.length) return false;
-        const tipIdx = [4, 9, 14, 19, 24];
-        if (bones[0]) {
-          bones[0].getWorldPosition(this._world);
-          this._place(0, this._world);
-        }
-        for (let i = 0; i < 5; i++) {
-          const b = bones[tipIdx[i]] || bones[Math.min(bones.length - 1, 4 + i * 4)];
-          if (b) {
-            b.getWorldPosition(this._world);
-            this._place(i + 1, this._world);
-          }
-        }
-        return true;
+        m.object3D.position.set(x, y, z);
       },
       _fromXr: function () {
         const sceneEl = this.el.sceneEl;
@@ -2213,8 +2212,8 @@
             const pose = frame.getJointPose(joint, refSpace);
             if (!pose) continue;
             const p = pose.transform.position;
-            this._world.set(p.x, p.y, p.z);
-            this._place(i, this._world);
+            // Same local space as camera under #rig
+            this._placeLocal(i, p.x, p.y, p.z);
             any = true;
           }
           return any;
@@ -2223,13 +2222,21 @@
       },
       tick: function () {
         const ht = this.el.components['hand-tracking-controls'];
-        if (ht && ht.mesh) {
-          this.el.object3D.visible = true;
-          ht.mesh.visible = true;
+        // Prefer our XR-aligned orbs; hide A-Frame mesh if present (avoids double / offset ghost)
+        if (ht && ht.mesh) ht.mesh.visible = false;
+        this.el.object3D.visible = true;
+        let ok = this._fromXr();
+        if (!ok && this.pinchPos) {
+          // Pinch events are world-space — convert into rig-local if possible
+          const rig = document.getElementById('rig');
+          if (rig) {
+            this._tmp.copy(this.pinchPos);
+            rig.object3D.worldToLocal(this._tmp);
+            this._placeLocal(0, this._tmp.x, this._tmp.y, this._tmp.z);
+          } else {
+            this._placeLocal(0, this.pinchPos.x, this.pinchPos.y, this.pinchPos.z);
+          }
         }
-        let ok = ht && this._fromBones(ht);
-        if (!ok) ok = this._fromXr();
-        if (!ok && this.pinchPos) this._place(0, this.pinchPos);
       },
       remove: function () {
         for (let i = 0; i < this._markers.length; i++) {
@@ -2241,7 +2248,7 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel16 · put controllers down · hands glow in tunnel</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel17 · put controllers down · hands should line up</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
@@ -2342,24 +2349,24 @@
       <a-entity light="type: point; color: #aabbff; intensity: 1.2; distance: 2.8"></a-entity>
     </a-entity>
 
+    <!-- Hands = siblings of camera under #rig (NOT under camera — that drops them low) -->
     <a-entity id="rig" position="0 0 0">
       <a-camera
         id="cam"
         position="0 0 0"
         look-controls="enabled: true"
         wasd-controls="enabled: false"
-      >
-        <a-entity
-          id="leftHand"
-          hand-tracking-grab-controls="hand: left; color: #7dffd4; hoverColor: #ffe600; hoverEnabled: true"
-          pinch-tracker="hand: left; color: #7dffd4"
-        ></a-entity>
-        <a-entity
-          id="rightHand"
-          hand-tracking-grab-controls="hand: right; color: #ff9ad8; hoverColor: #ffe600; hoverEnabled: true"
-          pinch-tracker="hand: right; color: #ff9ad8"
-        ></a-entity>
-      </a-camera>
+      ></a-camera>
+      <a-entity
+        id="leftHand"
+        hand-tracking-controls="hand: left; modelStyle: dots; modelColor: #7dffd4"
+        pinch-tracker="hand: left; color: #7dffd4"
+      ></a-entity>
+      <a-entity
+        id="rightHand"
+        hand-tracking-controls="hand: right; modelStyle: dots; modelColor: #ff9ad8"
+        pinch-tracker="hand: right; color: #ff9ad8"
+      ></a-entity>
     </a-entity>
 
     <a-entity hex-tunnel="speed: 0.024"></a-entity>
@@ -2428,7 +2435,7 @@
     const sceneEl = document.querySelector('a-scene');
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel16.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel17.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
