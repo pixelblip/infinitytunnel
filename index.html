@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 12</title>
+  <title>Rainbow Hex Tunnel 13</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -43,7 +43,7 @@
   </style>
   <script>
     /**
-     * tunnel12 — toys rig-anchored (not camera); 2× speed; hands at scene root.
+     * tunnel13 — fix A-Frame hsl setAttribute crash (black screen); serve via http.
      */
     const TunnelDrone = {
       ctx: null,
@@ -1982,12 +1982,13 @@
         }
       },
       spawnSpark: function (p) {
+        const hex = this.hueToHex(this.hue);
         const s = document.createElement('a-sphere');
         s.setAttribute('radius', 0.008 + Math.random() * 0.012);
         s.setAttribute('position', p.x + ' ' + p.y + ' ' + p.z);
         s.setAttribute(
           'material',
-          'shader: flat; color: hsl(' + (this.hue % 360) + ',100%,70%); transparent: true; opacity: 0.85; depthWrite: false'
+          'shader: flat; color: ' + hex + '; transparent: true; opacity: 0.85; depthWrite: false'
         );
         this.el.sceneEl.appendChild(s);
         const life = 0.45 + Math.random() * 0.3;
@@ -2000,28 +2001,51 @@
             return;
           }
           s.object3D.position.y += 0.008;
-          s.setAttribute('material', 'opacity', Math.max(0, 1 - age / life));
+          const mesh = s.getObject3D('mesh');
+          if (mesh && mesh.material) mesh.material.opacity = Math.max(0, 1 - age / life);
         }, 40);
       },
+      hueToHex: function (h) {
+        h = ((h % 360) + 360) % 360;
+        const s = 0.92;
+        const l = 0.58;
+        const a = s * Math.min(l, 1 - l);
+        const f = (n) => {
+          const k = (n + h / 30) % 12;
+          return l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+        };
+        const to = (v) => Math.round(v * 255).toString(16).padStart(2, '0');
+        return '#' + to(f(0)) + to(f(8)) + to(f(4));
+      },
       applyHue: function (held) {
-        const h = this.hue % 360;
+        // Update THREE materials directly — never setAttribute with hsl()
+        // (commas in hsl crash A-Frame 1.5 schemaChange → black screen)
         const bright = held ? 1.15 : 0.7;
         const targets = this.el.querySelectorAll('[data-toy-surface]');
         for (let i = 0; i < targets.length; i++) {
           const el = targets[i];
-          const dh = (h + i * 25) % 360;
-          el.setAttribute(
-            'material',
-            'color: hsl(' + dh + ',92%,58%); metalness: 0.35; roughness: 0.12; ' +
-            'emissive: hsl(' + dh + ',100%,42%); emissiveIntensity: ' + bright + '; ' +
-            'transparent: true; opacity: 0.94'
-          );
+          const hex = this.hueToHex(this.hue + i * 25);
+          const mesh = el.getObject3D('mesh');
+          if (mesh && mesh.material) {
+            if (mesh.material.color) mesh.material.color.set(hex);
+            if (mesh.material.emissive) mesh.material.emissive.set(hex);
+            if (mesh.material.emissiveIntensity != null) {
+              mesh.material.emissiveIntensity = bright;
+            }
+          } else {
+            el.setAttribute(
+              'material',
+              'color: ' + hex + '; metalness: 0.35; roughness: 0.12; emissive: ' +
+              hex + '; emissiveIntensity: ' + bright + '; transparent: true; opacity: 0.94'
+            );
+          }
         }
         const light = this.el.querySelector('[light]');
         if (light) {
+          const hex = this.hueToHex(this.hue);
           light.setAttribute(
             'light',
-            'type: point; color: hsl(' + h + ',100%,68%); intensity: ' +
+            'type: point; color: ' + hex + '; intensity: ' +
             (held ? 2.4 : 1.0) + '; distance: 3.2'
           );
         }
@@ -2101,7 +2125,7 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel12 · toys stay in the tunnel · pinch to grab</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel13 · open via http://localhost:8899 — not file://</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
 
   <a-scene
