@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 32</title>
+  <title>Rainbow Hex Tunnel 33</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel32 — yellow corner trails (horizontal spin, manual rotate for Quest).
+     * tunnel33 — wider-spaced corner trails, slightly dimmer rainbow walls.
      */
     const TunnelDrone = {
       ctx: null,
@@ -1622,7 +1622,7 @@
         this.WALL_THICK = 0.1;
         this.WHITE_EVERY = 18;
         this.PLANE_SIZE = 0.38;
-        this.PLANE_GAP = 1.1;
+        this.PLANE_GAP = 1.75;
         this.PLANES_PER_LINE = 18;
         this._cornerSpin = 0;
         this.camZ = 0;
@@ -1641,7 +1641,7 @@
 
       hueColor(t) {
         const h = ((t % 1) + 1) % 1;
-        const l = 0.5;
+        const l = 0.36;
         const a = Math.min(l, 1 - l);
         const f = (n) => {
           const k = (n + h * 12) % 12;
@@ -1669,12 +1669,12 @@
           if (mesh && mesh.material) {
             mesh.material.color.set(color);
             mesh.material.emissive.set(color);
-            mesh.material.emissiveIntensity = isWhite ? 1.0 : 0.6;
+            mesh.material.emissiveIntensity = isWhite ? 0.72 : 0.38;
             mesh.material.needsUpdate = true;
           } else {
             wall.setAttribute(
               'material',
-              `color: ${color}; emissive: ${color}; emissiveIntensity: ${isWhite ? 1.0 : 0.6}; metalness: 0.2; roughness: 0.5; side: double`
+              `color: ${color}; emissive: ${color}; emissiveIntensity: ${isWhite ? 0.72 : 0.38}; metalness: 0.2; roughness: 0.5; side: double`
             );
           }
         });
@@ -1701,7 +1701,7 @@
             wall.setAttribute('rotation', `0 0 ${roll}`);
             wall.setAttribute(
               'material',
-              'color: #ff0040; emissive: #ff0040; emissiveIntensity: 0.6; metalness: 0.2; roughness: 0.5; side: double'
+              'color: #ff0040; emissive: #ff0040; emissiveIntensity: 0.38; metalness: 0.2; roughness: 0.5; side: double'
             );
             group.appendChild(wall);
           }
@@ -1822,7 +1822,7 @@
         }
 
         // Gentle wall emissive shimmer — doesn't change structure
-        const shimmer = 0.55 + 0.12 * Math.sin(time * 0.0015);
+        const shimmer = 0.36 + 0.08 * Math.sin(time * 0.0015);
         this.segments.forEach((seg, si) => {
           if (si % 3 !== 0) return;
           const walls = seg.querySelectorAll('a-box');
@@ -1830,7 +1830,7 @@
           if (!w) return;
           const mesh = w.getObject3D('mesh');
           if (mesh && mesh.material && mesh.material.emissiveIntensity != null) {
-            mesh.material.emissiveIntensity = shimmer + 0.15 * Math.sin(time * 0.003 + si);
+            mesh.material.emissiveIntensity = shimmer + 0.1 * Math.sin(time * 0.003 + si);
           }
         });
 
@@ -2586,7 +2586,7 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel32 · yellow corner trails · fidget toys</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel33 · wider corner trails · dimmer rainbow</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
@@ -2594,14 +2594,14 @@
 
   <a-scene
     background="color: #000008"
-    fog="type: exponential; color: #000008; density: 0.006"
+    fog="type: exponential; color: #000008; density: 0.008"
     renderer="antialias: false; colorManagement: true; physicallyCorrectLights: false; maxCanvasWidth: 1600; maxCanvasHeight: 1600"
     vr-mode-ui="enabled: true"
     webxr="referenceSpaceType: local; optionalFeatures: hand-tracking, local-floor, bounded-floor"
     obb-collider="showColliders: false"
   >
-    <a-entity light="type: ambient; color: #8899aa; intensity: 0.7"></a-entity>
-    <a-entity id="mood-light" light="type: point; color: #ff4080; intensity: 0.45; distance: 22" position="0 0 -5"></a-entity>
+    <a-entity light="type: ambient; color: #667788; intensity: 0.42"></a-entity>
+    <a-entity id="mood-light" light="type: point; color: #ff4080; intensity: 0.28; distance: 22" position="0 0 -5"></a-entity>
     <a-entity light="type: directional; color: #ffffff; intensity: 0.55" position="1 2 0.5"></a-entity>
 
     <a-box
@@ -2771,7 +2771,7 @@
     });
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel32.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel33.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
