@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 19</title>
+  <title>Rainbow Hex Tunnel 20</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -64,7 +64,7 @@
   </style>
   <script>
     /**
-     * tunnel19 — pinch grab fixed (toys under #rig = same space as hand pinch).
+     * tunnel20 — world-space hand grab (touch or pinch) so toys are actually playable.
      */
     const TunnelDrone = {
       ctx: null,
@@ -1906,81 +1906,88 @@
     });
 
     /**
-     * Toys live under #rig (NOT the scene, NOT the camera).
-     * Pinch positions from hand-tracking are in that same local space.
-     * Earlier versions compared world toy pos to local pinch → grab always missed
-     * once the tunnel had flown even a little.
+     * Floating toys in front of you. Positions are world-space offsets from #rig.
+     * Grabbing is handled by air-toy-grabber (world fingertip positions).
      */
     AFRAME.registerComponent('air-toy', {
       schema: {
         spawnX: { type: 'number', default: 0 },
         spawnY: { type: 'number', default: 0 },
-        spawnZ: { type: 'number', default: -0.45 },
-        grabRadius: { type: 'number', default: 0.4 },
+        spawnZ: { type: 'number', default: -0.35 },
+        grabRadius: { type: 'number', default: 0.18 },
         spin: { type: 'number', default: 0.35 },
         hueSpeed: { type: 'number', default: 45 }
       },
       init: function () {
         const THREE = AFRAME.THREE;
         this.held = false;
-        this.holdHand = null;
+        this.hover = false;
         this.hue = Math.random() * 360;
         this.ox = this.data.spawnX;
         this.oy = this.data.spawnY;
         this.oz = this.data.spawnZ;
-        this._tmp = new THREE.Vector3();
-        this.ensureRigChild();
-        this.el.object3D.position.set(this.ox, this.oy, this.oz);
-        this.el.sceneEl.addEventListener('enter-vr', () => this.ensureRigChild());
-        this.el.sceneEl.addEventListener('loaded', () => this.ensureRigChild());
+        this._world = new THREE.Vector3();
+        this.ensureSceneChild();
+        this.pinToRig();
+        this.el.sceneEl.addEventListener('enter-vr', () => {
+          this.ensureSceneChild();
+          this.pinToRig();
+        });
       },
-      ensureRigChild: function () {
+      ensureSceneChild: function () {
+        const scene = this.el.sceneEl;
+        if (!scene) return;
+        if (this.el.parentNode !== scene) scene.appendChild(this.el);
+      },
+      pinToRig: function () {
         const rig = document.getElementById('rig');
         if (!rig) return;
-        if (this.el.parentNode !== rig) rig.appendChild(this.el);
+        const r = rig.object3D.position;
+        this.el.object3D.position.set(r.x + this.ox, r.y + this.oy, r.z + this.oz);
       },
-      tryPinchGrab: function (handEl, pinchLocal) {
-        if (this.held || !pinchLocal) return false;
-        // Both toy and pinch are #rig-local
-        this._tmp.set(pinchLocal.x, pinchLocal.y, pinchLocal.z);
-        if (this.el.object3D.position.distanceTo(this._tmp) > this.data.grabRadius) {
-          return false;
+      setHover: function (on) {
+        this.hover = on;
+        if (!this.held) {
+          this.el.setAttribute('scale', on ? '1.2 1.2 1.2' : '1 1 1');
         }
-        this.held = true;
-        this.holdHand = handEl;
-        this.el.object3D.position.copy(this._tmp);
-        this.hue = (this.hue + 40) % 360;
-        this.el.setAttribute('scale', '1.12 1.12 1.12');
-        return true;
       },
-      followPinch: function (pinchLocal) {
-        if (!this.held || !pinchLocal) return;
-        this.el.object3D.position.set(pinchLocal.x, pinchLocal.y, pinchLocal.z);
-        this.hue = (this.hue + 0.8) % 360;
+      grabAt: function (worldPos) {
+        this.held = true;
+        this.hover = false;
+        this.el.object3D.position.set(worldPos.x, worldPos.y, worldPos.z);
+        this.hue = (this.hue + 50) % 360;
+        this.el.setAttribute('scale', '1.25 1.25 1.25');
+      },
+      followWorld: function (worldPos) {
+        if (!this.held) return;
+        this.el.object3D.position.set(worldPos.x, worldPos.y, worldPos.z);
+        this.hue = (this.hue + 1.2) % 360;
       },
       release: function () {
         if (!this.held) return;
         this.held = false;
-        this.holdHand = null;
         this.el.setAttribute('scale', '1 1 1');
-        const p = this.el.object3D.position;
-        this.ox = p.x;
-        this.oy = p.y;
-        this.oz = p.z;
+        const rig = document.getElementById('rig');
+        if (rig) {
+          const r = rig.object3D.position;
+          const p = this.el.object3D.position;
+          this.ox = p.x - r.x;
+          this.oy = p.y - r.y;
+          this.oz = p.z - r.z;
+        }
       },
-      spawnSpark: function (p) {
+      spawnSpark: function () {
+        const p = this.el.object3D.position;
         const hex = this.hueToHex(this.hue);
         const s = document.createElement('a-sphere');
         s.setAttribute('radius', 0.008 + Math.random() * 0.012);
-        // Spark in #rig-local (same parent as toy)
-        const rig = document.getElementById('rig') || this.el.sceneEl;
         s.setAttribute('position', p.x + ' ' + p.y + ' ' + p.z);
         s.setAttribute(
           'material',
           'shader: flat; color: ' + hex + '; transparent: true; opacity: 0.85; depthWrite: false'
         );
-        rig.appendChild(s);
-        const life = 0.45 + Math.random() * 0.3;
+        this.el.sceneEl.appendChild(s);
+        const life = 0.4 + Math.random() * 0.25;
         let age = 0;
         const iv = setInterval(() => {
           age += 0.04;
@@ -2007,7 +2014,7 @@
         return '#' + to(f(0)) + to(f(8)) + to(f(4));
       },
       applyHue: function (held) {
-        const bright = held ? 1.15 : 0.7;
+        const bright = held ? 1.2 : (this.hover ? 1.0 : 0.7);
         const targets = this.el.querySelectorAll('[data-toy-surface]');
         for (let i = 0; i < targets.length; i++) {
           const el = targets[i];
@@ -2019,104 +2026,217 @@
             if (mesh.material.emissiveIntensity != null) {
               mesh.material.emissiveIntensity = bright;
             }
-          } else {
-            el.setAttribute(
-              'material',
-              'color: ' + hex + '; metalness: 0.35; roughness: 0.12; emissive: ' +
-              hex + '; emissiveIntensity: ' + bright + '; transparent: true; opacity: 0.94'
-            );
           }
-        }
-        const light = this.el.querySelector('[light]');
-        if (light) {
-          const hex = this.hueToHex(this.hue);
-          light.setAttribute(
-            'light',
-            'type: point; color: ' + hex + '; intensity: ' +
-            (held ? 2.4 : 1.0) + '; distance: 3.2'
-          );
         }
       },
       tick: function (t, dtMs) {
         const dt = Math.min(0.05, (dtMs || 16) / 1000);
-        this.ensureRigChild();
-
+        this.ensureSceneChild();
         if (this.held) {
           this.hue = (this.hue + this.data.hueSpeed * dt * 2.2) % 360;
-          if (Math.random() < 0.12) {
-            this.spawnSpark(this.el.object3D.position);
-          }
+          if (Math.random() < 0.14) this.spawnSpark();
         } else {
-          this.el.object3D.position.set(this.ox, this.oy, this.oz);
+          this.pinToRig();
           this.hue = (this.hue + this.data.hueSpeed * dt * 0.15) % 360;
           this.el.object3D.rotation.x += this.data.spin * dt * 0.35;
           this.el.object3D.rotation.y += this.data.spin * dt;
           this.el.object3D.rotation.z += this.data.spin * dt * 0.2;
         }
         this.applyHue(this.held);
+      },
+      tock: function () {
+        if (!this.held) this.pinToRig();
       }
     });
 
     /**
-     * One grab manager on #rig — polls hand pinch every frame (more reliable than
-     * events alone) and assigns the closest air-toy in the same local space.
+     * World-space grabber: reads fingertip WORLD positions from the hand skeleton
+     * (or raw WebXR joints), so parenting / flying #rig cannot break hit-tests.
+     *
+     * Grab if: hand is near a toy AND (pinch OR poke/touch).
+     * Release when fingers open (thumb–index far apart).
      */
     AFRAME.registerComponent('air-toy-grabber', {
+      schema: {
+        pinchMax: { type: 'number', default: 0.05 },
+        releaseMin: { type: 'number', default: 0.07 },
+        pokeFrames: { type: 'number', default: 6 }
+      },
       init: function () {
+        const THREE = AFRAME.THREE;
         this._heldToy = null;
-        this._heldHand = null;
+        this._heldSide = null;
+        this._thumb = new THREE.Vector3();
+        this._index = new THREE.Vector3();
+        this._mid = new THREE.Vector3();
+        this._toyW = new THREE.Vector3();
+        this._poke = { left: 0, right: 0 };
+        this._status = null;
       },
-      _pinchOf: function (handEl) {
+      _jointWorldFromHand: function (handEl, jointName, out) {
         const ht = handEl && handEl.components['hand-tracking-controls'];
-        if (!ht || !ht.isPinched || !ht.pinchEventDetail) return null;
-        return ht.pinchEventDetail.position;
+        if (!ht || !ht.hasPoses) return false;
+        // Mesh model: look up by joint name (skeleton order ≠ JOINTS index)
+        if (typeof ht.getBone === 'function') {
+          const bone = ht.getBone(jointName);
+          if (bone) {
+            bone.getWorldPosition(out);
+            return true;
+          }
+        }
+        // Dots model: jointEls follow JOINTS order
+        const tipIndex = jointName === 'thumb-tip' ? 4
+          : jointName === 'index-finger-tip' ? 9
+          : -1;
+        if (tipIndex >= 0 && ht.jointEls && ht.jointEls[tipIndex] && ht.jointEls[tipIndex].object3D) {
+          ht.jointEls[tipIndex].object3D.getWorldPosition(out);
+          return true;
+        }
+        return false;
       },
-      // tock = after hand-tracking-controls has updated pinch for this frame
+      _jointWorldFromXr: function (side, jointName, out) {
+        const sceneEl = this.el.sceneEl;
+        const renderer = sceneEl && sceneEl.renderer;
+        if (!renderer || !renderer.xr) return false;
+        const frame = sceneEl.frame;
+        const session = renderer.xr.getSession && renderer.xr.getSession();
+        const refSpace = renderer.xr.getReferenceSpace && renderer.xr.getReferenceSpace();
+        if (!frame || !session || !refSpace) return false;
+        for (let i = 0; i < session.inputSources.length; i++) {
+          const src = session.inputSources[i];
+          if (!src.hand || src.handedness !== side) continue;
+          const joint = src.hand.get(jointName);
+          if (!joint) continue;
+          const pose = frame.getJointPose(joint, refSpace);
+          if (!pose) continue;
+          // Reference-space → Three world via #rig (hands/camera live under #rig)
+          out.set(
+            pose.transform.position.x,
+            pose.transform.position.y,
+            pose.transform.position.z
+          );
+          const rig = document.getElementById('rig');
+          if (rig) rig.object3D.localToWorld(out);
+          return true;
+        }
+        return false;
+      },
+      _readHand: function (side, handEl) {
+        let okThumb = this._jointWorldFromHand(handEl, 'thumb-tip', this._thumb);
+        let okIndex = this._jointWorldFromHand(handEl, 'index-finger-tip', this._index);
+        if (!okThumb) okThumb = this._jointWorldFromXr(side, 'thumb-tip', this._thumb);
+        if (!okIndex) okIndex = this._jointWorldFromXr(side, 'index-finger-tip', this._index);
+        if (!okThumb || !okIndex) return null;
+        this._mid.copy(this._thumb).add(this._index).multiplyScalar(0.5);
+        const pinchDist = this._thumb.distanceTo(this._index);
+        return {
+          side: side,
+          handEl: handEl,
+          pinchDist: pinchDist,
+          pinching: pinchDist <= this.data.pinchMax,
+          open: pinchDist >= this.data.releaseMin,
+          mid: this._mid,
+          index: this._index
+        };
+      },
+      _setStatus: function (msg) {
+        if (!this._status) this._status = document.getElementById('grabStatus');
+        if (this._status) this._status.setAttribute('value', msg);
+      },
       tock: function () {
         const left = document.getElementById('leftHand');
         const right = document.getElementById('rightHand');
-        const hands = [left, right];
+        const hands = [
+          { side: 'left', el: left },
+          { side: 'right', el: right }
+        ];
+        const toys = this.el.sceneEl.querySelectorAll('[air-toy]');
 
-        // Release if pinch ended
-        if (this._heldToy && this._heldHand) {
-          const pinch = this._pinchOf(this._heldHand);
-          if (!pinch) {
-            this._heldToy.release();
-            this._heldToy = null;
-            this._heldHand = null;
-          } else {
-            this._heldToy.followPinch(pinch);
-            return;
-          }
+        // Update hover + poke counters
+        for (let i = 0; i < toys.length; i++) {
+          const toy = toys[i].components['air-toy'];
+          if (toy && !toy.held) toy.setHover(false);
         }
 
-        // Try grab: closest toy within reach of either pinching hand
+        // Continue held grab
+        if (this._heldToy && this._heldSide) {
+          const handEl = this._heldSide === 'left' ? left : right;
+          const info = this._readHand(this._heldSide, handEl);
+          if (!info || info.open) {
+            this._heldToy.release();
+            this._heldToy = null;
+            this._heldSide = null;
+            this._setStatus('released — pinch near a toy');
+            return;
+          }
+          this._heldToy.followWorld(info.mid);
+          this._setStatus('holding · open fingers to drop');
+          return;
+        }
+
+        // Find nearest toy under either hand
         let best = null;
         let bestDist = Infinity;
-        let bestHand = null;
-        let bestPinch = null;
-        const toys = this.el.querySelectorAll('[air-toy]');
+        let bestInfo = null;
+        let anyHand = false;
 
         for (let h = 0; h < hands.length; h++) {
-          const hand = hands[h];
-          const pinch = this._pinchOf(hand);
-          if (!pinch) continue;
+          const info = this._readHand(hands[h].side, hands[h].el);
+          if (!info) continue;
+          anyHand = true;
+          let handBest = null;
+          let handBestDist = Infinity;
           for (let i = 0; i < toys.length; i++) {
             const toy = toys[i].components['air-toy'];
             if (!toy || toy.held) continue;
-            const d = toy.el.object3D.position.distanceTo(pinch);
-            if (d <= toy.data.grabRadius && d < bestDist) {
+            toy.el.object3D.getWorldPosition(this._toyW);
+            const d = this._toyW.distanceTo(info.index);
+            if (d < toy.data.grabRadius * 1.8) toy.setHover(true);
+            if (d < handBestDist) {
+              handBestDist = d;
+              handBest = toy;
+            }
+            if (d < bestDist) {
               bestDist = d;
               best = toy;
-              bestHand = hand;
-              bestPinch = pinch;
+              bestInfo = info;
             }
+          }
+          if (handBest && handBestDist <= handBest.data.grabRadius) {
+            this._poke[info.side] = (this._poke[info.side] || 0) + 1;
+          } else {
+            this._poke[info.side] = 0;
           }
         }
 
-        if (best && best.tryPinchGrab(bestHand, bestPinch)) {
+        if (!anyHand) {
+          this._setStatus('show hands (put controllers down)');
+          return;
+        }
+
+        if (!best || !bestInfo) {
+          this._setStatus('reach toward a toy');
+          return;
+        }
+
+        const inReach = bestDist <= best.data.grabRadius;
+        const pokeReady = (this._poke[bestInfo.side] || 0) >= this.data.pokeFrames;
+        const canGrab = inReach && (bestInfo.pinching || pokeReady);
+
+        this._setStatus(
+          inReach
+            ? (bestInfo.pinching ? 'pinch! grabbing…' : 'touching — pinch or hold finger on it')
+            : ('near ' + bestDist.toFixed(2) + 'm — move closer')
+        );
+
+        if (canGrab) {
+          best.grabAt(bestInfo.mid);
           this._heldToy = best;
-          this._heldHand = bestHand;
+          this._heldSide = bestInfo.side;
+          this._poke.left = 0;
+          this._poke.right = 0;
+        } else if (!inReach) {
+          this._poke[bestInfo.side] = 0;
         }
       }
     });
@@ -2134,11 +2254,11 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel19 · pinch near a toy to grab it</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel20 · touch a toy then pinch · open hand to drop</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
   <div id="originWarn" role="alert"></div>
   <button type="button" id="btnEnterVr">Enter VR</button>
-  <p id="handHint" style="display:none;position:fixed;bottom:3.2rem;left:50%;transform:translateX(-50%);z-index:10002;color:#c8c4b8;font:0.6rem Georgia,serif;letter-spacing:0.06em;text-align:center;opacity:0.8">Put controllers down · pinch near a toy to grab it</p>
+  <p id="handHint" style="display:none;position:fixed;bottom:3.2rem;left:50%;transform:translateX(-50%);z-index:10002;color:#c8c4b8;font:0.6rem Georgia,serif;letter-spacing:0.06em;text-align:center;opacity:0.8">Put controllers down · touch a toy &amp; pinch</p>
 
   <a-scene
     background="color: #000008"
@@ -2165,92 +2285,103 @@
     ></a-box>
     <a-entity id="cube-light" light="type: point; color: #ffffff; intensity: 3.2; distance: 8" position="0.25 0.25 -1.8"></a-entity>
 
-    <!-- Toys + hands under #rig so pinch coords match toy local positions -->
-    <a-entity id="rig" position="0 0 0" air-toy-grabber>
+    <!-- Toys at scene root (world space). Grabber uses fingertip WORLD positions. -->
+    <a-entity id="toy-prism" air-toy="spawnX: 0.22; spawnY: -0.12; spawnZ: -0.32; grabRadius: 0.2; hueSpeed: 55">
+      <a-cone
+        data-toy-surface
+        radius-bottom="0.055"
+        radius-top="0.055"
+        height="0.12"
+        segments-radial="3"
+        material="color: #88ccff; metalness: 0.5; roughness: 0.08; emissive: #4488ff; emissiveIntensity: 0.75; transparent: true; opacity: 0.92"
+      ></a-cone>
+      <a-entity light="type: point; color: #88ccff; intensity: 1.1; distance: 2.8"></a-entity>
+    </a-entity>
+
+    <a-entity id="toy-atom" air-toy="spawnX: -0.2; spawnY: -0.1; spawnZ: -0.34; grabRadius: 0.2; spin: 0.25">
+      <a-sphere
+        data-toy-surface
+        radius="0.03"
+        material="color: #ffe066; emissive: #ffaa00; emissiveIntensity: 1"
+      ></a-sphere>
+      <a-torus data-toy-surface radius="0.07" radius-tubular="0.005" rotation="90 0 0"
+        material="shader: flat; color: #66ffcc; transparent: true; opacity: 0.85"
+        animation="property: rotation; to: 360 0 0; loop: true; dur: 4200; easing: linear"></a-torus>
+      <a-torus data-toy-surface radius="0.085" radius-tubular="0.005" rotation="0 45 45"
+        material="shader: flat; color: #ff88dd; transparent: true; opacity: 0.8"
+        animation="property: rotation; to: 0 360 180; loop: true; dur: 5600; easing: linear"></a-torus>
+      <a-torus data-toy-surface radius="0.055" radius-tubular="0.004" rotation="45 0 90"
+        material="shader: flat; color: #aabbff; transparent: true; opacity: 0.75"
+        animation="property: rotation; to: 180 360 0; loop: true; dur: 3800; easing: linear"></a-torus>
+      <a-entity light="type: point; color: #ffe066; intensity: 0.9; distance: 2.5"></a-entity>
+    </a-entity>
+
+    <a-entity id="toy-pyramid" air-toy="spawnX: 0.02; spawnY: -0.16; spawnZ: -0.28; grabRadius: 0.2; spin: 0.5">
+      <a-cone
+        data-toy-surface
+        radius-bottom="0.07"
+        height="0.11"
+        segments-radial="4"
+        material="color: #cc66ff; metalness: 0.4; emissive: #9922ff; emissiveIntensity: 0.8; transparent: true; opacity: 0.9"
+      ></a-cone>
+      <a-cone
+        data-toy-surface
+        radius-bottom="0.04"
+        height="0.065"
+        segments-radial="4"
+        position="0 0.025 0"
+        rotation="180 0 0"
+        material="color: #66ffff; wireframe: true; emissive: #22dddd; emissiveIntensity: 0.6"
+      ></a-cone>
+      <a-entity light="type: point; color: #cc66ff; intensity: 1; distance: 2.5"></a-entity>
+    </a-entity>
+
+    <a-entity id="toy-escher" air-toy="spawnX: -0.08; spawnY: -0.02; spawnZ: -0.4; grabRadius: 0.22; spin: 0.2">
+      <a-entity counter-spin="speed: 0.8">
+        <a-box data-toy-surface width="0.13" height="0.022" depth="0.022" position="0 0.04 0"
+          material="color: #ddeeff; emissive: #8899ff; emissiveIntensity: 0.9"></a-box>
+        <a-box data-toy-surface width="0.13" height="0.022" depth="0.022" position="0.055 -0.02 0" rotation="0 0 -60"
+          material="color: #eeddff; emissive: #bb88ff; emissiveIntensity: 0.9"></a-box>
+        <a-box data-toy-surface width="0.13" height="0.022" depth="0.022" position="-0.055 -0.02 0" rotation="0 0 60"
+          material="color: #ffeedd; emissive: #ffbb88; emissiveIntensity: 0.9"></a-box>
+        <a-torus radius="0.075" radius-tubular="0.007" rotation="90 30 0"
+          material="shader: flat; color: #ffffff; wireframe: true; opacity: 0.7; transparent: true"></a-torus>
+        <a-torus radius="0.05" radius-tubular="0.005" rotation="30 90 45"
+          material="shader: flat; color: #aaffee; wireframe: true; opacity: 0.65; transparent: true"
+          animation="property: rotation; to: 360 720 360; loop: true; dur: 9000; easing: linear"></a-torus>
+      </a-entity>
+      <a-entity light="type: point; color: #aabbff; intensity: 1.2; distance: 2.8"></a-entity>
+    </a-entity>
+
+    <a-entity id="rig" position="0 0 0">
       <a-camera
         id="cam"
         position="0 0 0"
         look-controls="enabled: true"
         wasd-controls="enabled: false"
-      ></a-camera>
-
-      <a-entity id="toy-prism" air-toy="spawnX: 0.28; spawnY: -0.08; spawnZ: -0.4; hueSpeed: 55">
-        <a-cone
-          data-toy-surface
-          radius-bottom="0.045"
-          radius-top="0.045"
-          height="0.1"
-          segments-radial="3"
-          material="color: #88ccff; metalness: 0.5; roughness: 0.08; emissive: #4488ff; emissiveIntensity: 0.75; transparent: true; opacity: 0.92"
-        ></a-cone>
-        <a-entity light="type: point; color: #88ccff; intensity: 1.1; distance: 2.8"></a-entity>
-      </a-entity>
-
-      <a-entity id="toy-atom" air-toy="spawnX: -0.26; spawnY: -0.05; spawnZ: -0.42; spin: 0.25">
-        <a-sphere
-          data-toy-surface
-          radius="0.022"
-          material="color: #ffe066; emissive: #ffaa00; emissiveIntensity: 1"
-        ></a-sphere>
-        <a-torus data-toy-surface radius="0.055" radius-tubular="0.004" rotation="90 0 0"
-          material="shader: flat; color: #66ffcc; transparent: true; opacity: 0.85"
-          animation="property: rotation; to: 360 0 0; loop: true; dur: 4200; easing: linear"></a-torus>
-        <a-torus data-toy-surface radius="0.07" radius-tubular="0.004" rotation="0 45 45"
-          material="shader: flat; color: #ff88dd; transparent: true; opacity: 0.8"
-          animation="property: rotation; to: 0 360 180; loop: true; dur: 5600; easing: linear"></a-torus>
-        <a-torus data-toy-surface radius="0.048" radius-tubular="0.003" rotation="45 0 90"
-          material="shader: flat; color: #aabbff; transparent: true; opacity: 0.75"
-          animation="property: rotation; to: 180 360 0; loop: true; dur: 3800; easing: linear"></a-torus>
-        <a-entity light="type: point; color: #ffe066; intensity: 0.9; distance: 2.5"></a-entity>
-      </a-entity>
-
-      <a-entity id="toy-pyramid" air-toy="spawnX: 0.05; spawnY: -0.12; spawnZ: -0.36; spin: 0.5">
-        <a-cone
-          data-toy-surface
-          radius-bottom="0.055"
-          height="0.09"
-          segments-radial="4"
-          material="color: #cc66ff; metalness: 0.4; emissive: #9922ff; emissiveIntensity: 0.8; transparent: true; opacity: 0.9"
-        ></a-cone>
-        <a-cone
-          data-toy-surface
-          radius-bottom="0.035"
-          height="0.055"
-          segments-radial="4"
-          position="0 0.02 0"
-          rotation="180 0 0"
-          material="color: #66ffff; wireframe: true; emissive: #22dddd; emissiveIntensity: 0.6"
-        ></a-cone>
-        <a-entity light="type: point; color: #cc66ff; intensity: 1; distance: 2.5"></a-entity>
-      </a-entity>
-
-      <a-entity id="toy-escher" air-toy="spawnX: -0.1; spawnY: 0.02; spawnZ: -0.48; spin: 0.2">
-        <a-entity counter-spin="speed: 0.8">
-          <a-box data-toy-surface width="0.11" height="0.018" depth="0.018" position="0 0.035 0"
-            material="color: #ddeeff; emissive: #8899ff; emissiveIntensity: 0.9"></a-box>
-          <a-box data-toy-surface width="0.11" height="0.018" depth="0.018" position="0.048 -0.018 0" rotation="0 0 -60"
-            material="color: #eeddff; emissive: #bb88ff; emissiveIntensity: 0.9"></a-box>
-          <a-box data-toy-surface width="0.11" height="0.018" depth="0.018" position="-0.048 -0.018 0" rotation="0 0 60"
-            material="color: #ffeedd; emissive: #ffbb88; emissiveIntensity: 0.9"></a-box>
-          <a-torus radius="0.065" radius-tubular="0.006" rotation="90 30 0"
-            material="shader: flat; color: #ffffff; wireframe: true; opacity: 0.7; transparent: true"></a-torus>
-          <a-torus radius="0.045" radius-tubular="0.004" rotation="30 90 45"
-            material="shader: flat; color: #aaffee; wireframe: true; opacity: 0.65; transparent: true"
-            animation="property: rotation; to: 360 720 360; loop: true; dur: 9000; easing: linear"></a-torus>
+      >
+        <a-entity position="0 -0.22 -0.55" rotation="-8 0 0">
+          <a-text
+            id="grabStatus"
+            value="put controllers down"
+            align="center"
+            width="1.1"
+            color="#ffe600"
+            opacity="0.85"
+          ></a-text>
         </a-entity>
-        <a-entity light="type: point; color: #aabbff; intensity: 1.2; distance: 2.8"></a-entity>
-      </a-entity>
-
+      </a-camera>
       <a-entity
         id="leftHand"
-        hand-tracking-controls="hand: left; modelStyle: mesh; modelColor: #7dffd4"
+        hand-tracking-controls="hand: left; modelStyle: dots; modelColor: #7dffd4"
       ></a-entity>
       <a-entity
         id="rightHand"
-        hand-tracking-controls="hand: right; modelStyle: mesh; modelColor: #ff9ad8"
+        hand-tracking-controls="hand: right; modelStyle: dots; modelColor: #ff9ad8"
       ></a-entity>
     </a-entity>
 
+    <a-entity air-toy-grabber></a-entity>
     <a-entity hex-tunnel="speed: 0.024"></a-entity>
   </a-scene>
 
@@ -2317,7 +2448,7 @@
     const sceneEl = document.querySelector('a-scene');
     const originWarn = document.getElementById('originWarn');
     const btnEnterVr = document.getElementById('btnEnterVr');
-    const httpsUrl = 'https://192.168.1.76:8900/tunnel19.html';
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel20.html';
 
     function checkOrigin() {
       const isFile = location.protocol === 'file:';
