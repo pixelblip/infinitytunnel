@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rainbow Hex Tunnel 13</title>
+  <title>Rainbow Hex Tunnel 14</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -35,6 +35,25 @@
       padding: 0.65rem 1.1rem; cursor: pointer; touch-action: manipulation;
     }
     #audio-resume.show { display: block; }
+    #originWarn {
+      display: none; position: fixed; top: 0.75rem; left: 50%; transform: translateX(-50%);
+      z-index: 10002; max-width: 92vw; padding: 0.7rem 1rem;
+      background: rgba(40,8,4,0.92); border: 1px solid rgba(255,80,60,0.55);
+      color: #ffc8b8; font: 0.65rem Georgia, "Times New Roman", serif;
+      letter-spacing: 0.04em; line-height: 1.45; text-align: center;
+    }
+    #originWarn.show { display: block; }
+    #originWarn code { color: #9fe8ff; word-break: break-all; }
+    #btnEnterVr {
+      display: none; position: fixed; bottom: 5.5rem; left: 50%; transform: translateX(-50%);
+      z-index: 10002; font: 0.95rem Georgia, "Times New Roman", serif;
+      letter-spacing: 0.08em; color: #ffe600;
+      background: rgba(0,0,8,0.9); border: 1px solid rgba(255,230,0,0.65);
+      padding: 0.75rem 1.4rem; cursor: pointer; touch-action: manipulation;
+    }
+    body.audio-on #btnEnterVr { display: block; }
+    body.vr-on #btnEnterVr { display: none; }
+
     /* Force sound unlock before VR on Quest */
     body:not(.audio-on) .a-enter-vr-button,
     body:not(.audio-on) .a-enter-ar-button {
@@ -43,7 +62,7 @@
   </style>
   <script>
     /**
-     * tunnel13 — fix A-Frame hsl setAttribute crash (black screen); serve via http.
+     * tunnel14 — Quest VR needs HTTPS; explicit Enter VR after sound unlock.
      */
     const TunnelDrone = {
       ctx: null,
@@ -2125,15 +2144,17 @@
   </script>
 </head>
 <body>
-  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel13 · open via http://localhost:8899 — not file://</small></span></div>
+  <div id="audio-gate"><span>Tap to enable sound &amp; enter<small>tunnel14 · Quest: use https://192.168.1.76:8900/tunnel14.html</small></span></div>
   <button type="button" id="audio-resume">Tap for sound</button>
+  <div id="originWarn" role="alert"></div>
+  <button type="button" id="btnEnterVr">Enter VR</button>
 
   <a-scene
     background="color: #000008"
     fog="type: exponential; color: #000008; density: 0.006"
     renderer="antialias: true; colorManagement: true; physicallyCorrectLights: true"
     vr-mode-ui="enabled: true"
-    webxr="referenceSpaceType: local; optionalFeatures: hand-tracking, local-floor, bounded-floor"
+    webxr="referenceSpaceType: local-floor; optionalFeatures: local-floor, bounded-floor, hand-tracking"
     obb-collider="showColliders: false"
   >
     <a-entity light="type: ambient; color: #778899; intensity: 0.4"></a-entity>
@@ -2308,8 +2329,70 @@
     }, { passive: false });
 
     const sceneEl = document.querySelector('a-scene');
+    const originWarn = document.getElementById('originWarn');
+    const btnEnterVr = document.getElementById('btnEnterVr');
+    const httpsUrl = 'https://192.168.1.76:8900/tunnel14.html';
+
+    function checkOrigin() {
+      const isFile = location.protocol === 'file:';
+      const isSecure = window.isSecureContext === true;
+      if (isFile || !isSecure) {
+        originWarn.classList.add('show');
+        originWarn.innerHTML =
+          '<strong style="color:#ffe600">VR needs HTTPS on Quest</strong><br>' +
+          'Do not use file:// or plain http.<br>Open:<br><code>' + httpsUrl + '</code>' +
+          '<br>Accept the certificate warning, tap for sound, then Enter VR.';
+        return false;
+      }
+      originWarn.classList.remove('show');
+      return true;
+    }
+    checkOrigin();
+
+    async function enterVrNow() {
+      if (!checkOrigin()) return;
+      try {
+        if (!navigator.xr) {
+          originWarn.classList.add('show');
+          originWarn.textContent = 'WebXR not available in this browser.';
+          return;
+        }
+        const ok = await navigator.xr.isSessionSupported('immersive-vr');
+        if (!ok) {
+          originWarn.classList.add('show');
+          originWarn.textContent = 'This device does not report immersive-vr support.';
+          return;
+        }
+        if (!sceneEl.enterVR) {
+          originWarn.classList.add('show');
+          originWarn.textContent = 'A-Frame enterVR missing.';
+          return;
+        }
+        const p = sceneEl.enterVR();
+        if (p && typeof p.then === 'function') {
+          await p;
+          document.body.classList.add('vr-on');
+        }
+      } catch (err) {
+        console.warn('enterVR failed', err);
+        originWarn.classList.add('show');
+        originWarn.innerHTML =
+          'VR failed: ' + (err && err.message ? err.message : String(err)) +
+          '<br>Open on Quest via <code>' + httpsUrl + '</code>';
+      }
+    }
+
+    btnEnterVr.addEventListener('click', function (e) {
+      e.preventDefault();
+      enterVrNow();
+    });
+    btnEnterVr.addEventListener('touchend', function (e) {
+      e.preventDefault();
+      enterVrNow();
+    }, { passive: false });
+
     sceneEl.addEventListener('enter-vr', function () {
-      // Immersive mode often suspends AudioContext — try resume; show tap if needed
+      document.body.classList.add('vr-on');
       if (TunnelDrone.ctx) {
         TunnelDrone.ctx.resume().then(function () {
           if (TunnelDrone.ctx.state !== 'running') resumeBtn.classList.add('show');
@@ -2321,6 +2404,7 @@
       }
     });
     sceneEl.addEventListener('exit-vr', function () {
+      document.body.classList.remove('vr-on');
       resumeAudio();
     });
 
@@ -2331,6 +2415,7 @@
         resumeBtn.classList.add('show');
       }
     }, 2000);
+
   </script>
 </body>
 </html>
